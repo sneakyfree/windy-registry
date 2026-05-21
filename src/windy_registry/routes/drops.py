@@ -14,13 +14,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from windy_drops_spec import DropManifest
 
 from ..database import get_session
 from ..middleware.auth import AuthUser, get_current_user
-from ..models import Drop, DropVersion
+from ..models import Drop, DropVersion, Fork
+from ..schemas.forks import ForkList, ForkRecord, ForkRequest
 from ..schemas.publish import PublishedDrop, PublishRequest
 from ..services.signature_verify import verify_signature
 
@@ -167,4 +168,78 @@ async def publish(
         signer_integrity_band=signer_band,
         signer_clearance_level=signer_level,
         published_at=version_row.published_at if version_row.published_at else __import__("datetime").datetime.now(),
+    )
+
+
+# ---- WD-19: fork + lineage endpoints ----
+
+@router.post(
+    "/{drop_id}/fork",
+    response_model=ForkRecord,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        404: {"description": "Source drop does not exist"},
+        409: {"description": "new_id collides with an existing drop"},
+        410: {"description": "Source drop is withdrawn"},
+    },
+)
+async def fork_drop(
+    drop_id: str,
+    body: ForkRequest,
+    user: AuthUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ForkRecord:
+    """Register lineage for a fork ahead of publish.
+
+    The SDK's `windy-drops fork` calls this to claim the new id + bump the
+    source's fork_count immediately. Publish (WD-18) later links the
+    DropVersion row.
+
+    is_published stays False until the fork's first version lands; a cron
+    can sweep unpublished forks older than 7 days (TBD).
+    """
+    source = await session.get(Drop, drop_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"error": "source_not_found"})
+    if source.withdrawn_at is not None:
+        raise HTTPException(status_code=410, detail={"error": "source_withdrawn"})
+
+    collision = await session.get(Drop, body.new_id)
+    if collision is not None:
+        raise HTTPException(status_code=409, detail={"error": "new_id_collision"})
+
+    # Existing lineage row would also collide; check via composite PK.
+    existing_fork = await session.get(Fork, (drop_id, body.new_id))
+    if existing_fork is not None:
+        raise HTTPException(status_code=409, detail={"error": "lineage_already_registered"})
+
+    fork = Fork(source_drop_id=drop_id, fork_drop_id=body.new_id, is_published=False)
+    session.add(fork)
+    await session.flush()
+    return ForkRecord.model_validate(fork, from_attributes=True)
+
+
+@router.get("/{drop_id}/forks", response_model=ForkList)
+async def list_forks(
+    drop_id: str,
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+) -> ForkList:
+    """List forks of a drop (lineage UI)."""
+    source = await session.get(Drop, drop_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
+
+    rows = (await session.execute(
+        select(Fork)
+        .where(Fork.source_drop_id == drop_id)
+        .order_by(Fork.forked_at.desc())
+        .limit(min(max(limit, 1), 200))
+    )).scalars().all()
+    total = (await session.execute(
+        select(func.count()).select_from(Fork).where(Fork.source_drop_id == drop_id)
+    )).scalar_one()
+    return ForkList(
+        items=[ForkRecord.model_validate(r, from_attributes=True) for r in rows],
+        total=total,
     )
