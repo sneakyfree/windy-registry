@@ -11,7 +11,19 @@ from fastapi import FastAPI
 
 from . import __version__
 from .config import get_settings
-from .routes import authors, browse, drops, federation, health, library, ratings, version, webhooks
+from .routes import (
+    authors,
+    browse,
+    drops,
+    federation,
+    health,
+    library,
+    ratings,
+    stripe_connect,
+    tips,
+    version,
+    webhooks,
+)
 
 
 def create_app() -> FastAPI:
@@ -35,6 +47,8 @@ def create_app() -> FastAPI:
     app.include_router(authors.authors_router)
     app.include_router(authors.follows_router)
     app.include_router(federation.router)
+    app.include_router(stripe_connect.router)
+    app.include_router(tips.router)
     return app
 
 
