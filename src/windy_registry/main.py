@@ -36,6 +36,17 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = settings
+
+    # G11: rate limit middleware. Disabled in dev + tests so the suite stays
+    # deterministic; enabled in production.
+    from .middleware.rate_limit import RateLimitMiddleware
+    app.add_middleware(
+        RateLimitMiddleware,
+        unauth_rate=settings.rate_limit_unauthenticated,
+        auth_rate=settings.rate_limit_user,
+        enabled=(settings.environment == "production"),
+    )
+
     app.include_router(version.router)
     app.include_router(health.router)
     app.include_router(drops.router)

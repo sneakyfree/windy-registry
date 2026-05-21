@@ -72,13 +72,22 @@ def _find_key(jwks: dict[str, Any], kid: str | None) -> dict[str, Any] | None:
 
 async def _try_verify(token: str, jwks_url: str, algorithms: list[str]) -> dict[str, Any] | None:
     """Returns claims if verification succeeds; None if the kid doesn't match
-    this JWKS (so the caller can try the next one)."""
+    this JWKS (so the caller can try the next one).
+
+    G19: if the kid isn't in the cached JWKS, refresh the cache ONCE and
+    retry before giving up — handles silent key rotation upstream without
+    forcing every request through a stale cache.
+    """
     header = jwt.get_unverified_header(token)
     kid = header.get("kid")
     jwks = await _fetch_jwks(jwks_url)
     key_dict = _find_key(jwks, kid)
     if key_dict is None:
-        return None
+        _jwks_cache.pop(jwks_url, None)  # G19: bust + retry
+        jwks = await _fetch_jwks(jwks_url)
+        key_dict = _find_key(jwks, kid)
+        if key_dict is None:
+            return None
     try:
         return jwt.decode(
             token,

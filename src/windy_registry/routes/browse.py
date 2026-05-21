@@ -6,14 +6,16 @@ Embeddings + vector similarity land at M9+ (see ADR-053 §"AI integration roadma
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings
 from ..database import get_session
-from ..models import Drop, DropVersion, Fork, Rating, UserLibrary
+from ..middleware.auth import AuthUser, get_current_user_optional
+from ..models import Drop, DropVersion, Follow, Fork, Rating, UserLibrary
 from ..schemas.browse import DropDetail, DropList, DropSummary, R2Config
+from ..services.i18n import resolve_i18n as _resolve_i18n_str
 
 router = APIRouter(tags=["drops"])
 public_router = APIRouter(tags=["meta"])
@@ -62,6 +64,7 @@ async def browse(
     cursor: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
+    accept_language: str | None = Header(default=None, alias="accept-language"),
 ) -> DropList:
     """Paginated browse with optional filters.
 
@@ -120,6 +123,10 @@ async def browse(
         last_drop, _ = rows[-1]
         next_cursor = f"{last_drop.created_at.isoformat()}|{last_drop.id}"
 
+    # F14: resolve i18n per Accept-Language.
+    for item in items:
+        item.name = _resolve_i18n_str(item.name, accept_language) if item.name else None
+        item.subtitle = _resolve_i18n_str(item.subtitle, accept_language) if item.subtitle else None
     return DropList(items=items, total=total, cursor=cursor, next_cursor=next_cursor)
 
 
@@ -128,6 +135,8 @@ async def trending(
     type: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
+    user: AuthUser | None = Depends(get_current_user_optional),
+    accept_language: str | None = Header(default=None, alias="accept-language"),
 ) -> DropList:
     """v1 trending — weighted by:
       installs_last_30d * 1.0
@@ -182,9 +191,42 @@ async def trending(
         func.coalesce(install_count_subq.c.install_count, 0)
         + 0.5 * func.coalesce(fork_count_subq.c.fork_count, 0)
     )
-    stmt = stmt.order_by(desc(score), desc(Drop.created_at)).limit(limit)
+    stmt = stmt.order_by(desc(score), desc(Drop.created_at)).limit(limit * 2)  # over-fetch for re-sort
 
     rows = (await session.execute(stmt)).all()
+
+    # F18: follower-aware boost. If signed in, boost drops whose signer is
+    # an author the user follows. Boost = +50% on the score.
+    followed_passports: set[str] = set()
+    if user is not None:
+        from ..routes.authors import _user_uuid as _author_uid
+        from ..middleware.auth import AuthUser
+        uid = _author_uid(user)
+        follows = (await session.execute(
+            select(Follow.followed_handle).where(Follow.follower_user_id == uid)
+        )).scalars().all()
+        if follows:
+            from ..models import Author
+            authors = (await session.execute(
+                select(Author.passport).where(
+                    Author.handle.in_(follows), Author.passport.is_not(None)
+                )
+            )).scalars().all()
+            followed_passports = {p for p in authors if p}
+
+    def _final_score(ic: int, fc: int, signer: str | None) -> float:
+        s = float(ic) + 0.5 * float(fc)
+        if signer and signer in followed_passports:
+            s *= 1.5
+        return s
+
+    enriched = [
+        (_final_score(int(ic), int(fc), v.signer_passport), d, v, ic, fc, ra, rc)
+        for d, v, ic, fc, ra, rc in rows
+    ]
+    enriched.sort(key=lambda x: -x[0])
+    enriched = enriched[:limit]
+
     items = [
         _summary_from(
             d, manifest=v.manifest,
@@ -194,8 +236,13 @@ async def trending(
             signer_passport=v.signer_passport,
             signer_integrity_band=v.signer_integrity_band,
         )
-        for d, v, ic, fc, ra, rc in rows
+        for _, d, v, ic, fc, ra, rc in enriched
     ]
+
+    # F14: resolve i18n name/subtitle per request's Accept-Language.
+    for item in items:
+        item.name = _resolve_i18n_str(item.name, accept_language) if item.name else None
+        item.subtitle = _resolve_i18n_str(item.subtitle, accept_language) if item.subtitle else None
     return DropList(items=items, total=len(items))
 
 
@@ -203,6 +250,7 @@ async def trending(
 async def drop_detail(
     drop_id: str,
     session: AsyncSession = Depends(get_session),
+    accept_language: str | None = Header(default=None, alias="accept-language"),
 ) -> DropDetail:
     drop = await session.get(Drop, drop_id)
     if drop is None:
@@ -239,13 +287,17 @@ async def drop_detail(
         signer_passport=version_row.signer_passport,
         signer_integrity_band=version_row.signer_integrity_band,
     )
-    return DropDetail(
+    detail = DropDetail(
         **summary.model_dump(),
         manifest=version_row.manifest,
         bundle_url=version_row.bundle_url,
         bundle_sha256=version_row.bundle_sha256,
         signature_verified=version_row.signature_verified,
     )
+    # F14: resolve i18n.
+    detail.name = _resolve_i18n_str(detail.name, accept_language) if detail.name else None
+    detail.subtitle = _resolve_i18n_str(detail.subtitle, accept_language) if detail.subtitle else None
+    return detail
 
 
 @public_router.get("/.well-known/r2-config", response_model=R2Config)

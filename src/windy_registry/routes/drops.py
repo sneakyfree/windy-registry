@@ -348,3 +348,83 @@ async def preview(
         mock_data=None,
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+# ---- F10 + F11: oembed + og metadata endpoints ----
+
+@router.get("/{drop_id}/oembed")
+async def oembed(
+    drop_id: str,
+    format: str = "json",
+    session: AsyncSession = Depends(get_session),
+):
+    """oEmbed discovery target for /d/{id} (referenced from WD-24 CF Pages
+    Function via <link rel='alternate' type='application/json+oembed'>).
+    See https://oembed.com/."""
+    if format != "json":
+        raise HTTPException(status_code=501, detail={"error": "only_json_format_supported"})
+    drop = await session.get(Drop, drop_id)
+    if drop is None:
+        raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
+    version_row = (await session.execute(
+        select(DropVersion).where(
+            DropVersion.drop_id == drop_id,
+            DropVersion.version == drop.current_version,
+        )
+    )).scalar_one_or_none()
+    if version_row is None:
+        raise HTTPException(status_code=500, detail={"error": "missing_current_version"})
+    from ..services.i18n import resolve_i18n
+    manifest = version_row.manifest or {}
+    name = resolve_i18n(manifest.get("name"), "en") or drop_id
+    authors_list = manifest.get("author") or []
+    author_name = ""
+    if isinstance(authors_list, list) and authors_list and isinstance(authors_list[0], dict):
+        author_name = authors_list[0].get("name", "")
+    return {
+        "version": "1.0",
+        "type": "rich",
+        "title": name,
+        "author_name": author_name,
+        "provider_name": "Windy Drops",
+        "provider_url": "https://windydrops.com",
+        "html": f'<iframe src="https://api.windydrops.com/api/v1/drops/{drop_id}/preview" width="600" height="400" frameborder="0" sandbox="allow-scripts"></iframe>',
+        "width": 600,
+        "height": 400,
+    }
+
+
+@router.get("/{drop_id}/og")
+async def og_metadata(
+    drop_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Canonical OpenGraph metadata for a drop. The CF Pages Function at
+    windydrops.com/d/{id} can call this OR build the OG inline; both must
+    return identical shapes."""
+    drop = await session.get(Drop, drop_id)
+    if drop is None:
+        raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
+    version_row = (await session.execute(
+        select(DropVersion).where(
+            DropVersion.drop_id == drop_id,
+            DropVersion.version == drop.current_version,
+        )
+    )).scalar_one_or_none()
+    if version_row is None:
+        raise HTTPException(status_code=500, detail={"error": "missing_current_version"})
+    from ..services.i18n import resolve_i18n
+    from ..config import get_settings
+    settings = get_settings()
+    manifest = version_row.manifest or {}
+    name = resolve_i18n(manifest.get("name"), "en") or drop_id
+    subtitle = resolve_i18n(manifest.get("subtitle"), "en") or f"{drop.type} drop on Windy Drops"
+    return {
+        "title": name,
+        "description": subtitle,
+        "image_url": f"https://{settings.r2_public_domain}/{drop_id}/{drop.current_version}/preview.png",
+        "canonical_url": f"https://windydrops.com/d/{drop_id}",
+        "embed_iframe_url": f"https://api.windydrops.com/api/v1/drops/{drop_id}/preview",
+        "type": drop.type,
+        "site_name": "Windy Drops",
+    }

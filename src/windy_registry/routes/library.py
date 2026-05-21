@@ -122,6 +122,12 @@ async def install(
     session.add(row)
     await session.flush()
 
+    # F17: recursively install depends_on chain (cap depth 5).
+    manifest = version_row.manifest or {}
+    deps = manifest.get("depends_on") or []
+    if isinstance(deps, list) and deps:
+        await _install_dependencies(session, uid, deps, depth=0)
+
     # WD-21: emit drop.installed.
     from ..services.webhook_dispatcher import dispatch_event
     await dispatch_event(
@@ -130,6 +136,58 @@ async def install(
         skip_async=True,
     )
     return LibraryRow.model_validate(row, from_attributes=True)
+
+
+async def _install_dependencies(
+    session: AsyncSession,
+    user_id: UUID,
+    deps: list,
+    *,
+    depth: int,
+    seen: set[str] | None = None,
+) -> None:
+    """F17: recursively install depends_on chain. Cap depth at 5.
+
+    Missing drops are skipped silently (don't fail the parent install on a
+    missing optional dep). Already-installed drops are no-ops. Paid drops
+    are skipped (v1; v1.1 will require explicit payment for each).
+    """
+    if depth >= 5:
+        return
+    seen = seen or set()
+    from ..models import DropVersion as _DV
+    for d in deps:
+        if not isinstance(d, dict):
+            continue
+        dep_id = d.get("id")
+        if not dep_id or dep_id in seen:
+            continue
+        seen.add(dep_id)
+
+        dep_drop = await session.get(Drop, dep_id)
+        if dep_drop is None or dep_drop.withdrawn_at is not None:
+            continue
+        if await session.get(UserLibrary, (user_id, dep_id)) is not None:
+            continue
+        dep_version = d.get("version") or dep_drop.current_version
+        dep_row = (await session.execute(
+            select(_DV).where(_DV.drop_id == dep_id, _DV.version == dep_version)
+        )).scalar_one_or_none()
+        if dep_row is None:
+            continue
+        pricing = (dep_row.manifest or {}).get("pricing") or {}
+        if pricing.get("type") == "paid":
+            continue
+        session.add(UserLibrary(
+            user_id=user_id, drop_id=dep_id, version=dep_version, auto_update=True,
+        ))
+        await session.flush()
+        await _install_dependencies(
+            session, user_id,
+            (dep_row.manifest or {}).get("depends_on") or [],
+            depth=depth + 1,
+            seen=seen,
+        )
 
 
 @router.post("/uninstall", status_code=status.HTTP_204_NO_CONTENT)
