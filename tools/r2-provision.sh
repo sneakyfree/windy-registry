@@ -22,7 +22,8 @@ API="https://api.cloudflare.com/client/v4"
 H_AUTH=(-H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json")
 
 echo "[r2-provision] checking bucket $BUCKET"
-exists=$(curl -fsS "${H_AUTH[@]}" "$API/accounts/$CF_ACCOUNT_ID/r2/buckets/$BUCKET" \
+# Drop -f so a 404 (bucket not yet created) doesn't trip set -e
+exists=$(curl -sS "${H_AUTH[@]}" "$API/accounts/$CF_ACCOUNT_ID/r2/buckets/$BUCKET" \
   | jq -r '.success // false')
 
 if [ "$exists" = "true" ]; then
@@ -45,7 +46,7 @@ echo "[r2-provision] applying CORS rules (windydrops.com + subdomains)"
 cors_json='{
   "rules": [{
     "allowed": {
-      "origins": ["https://windydrops.com", "https://*.windydrops.com", "http://localhost:*"],
+      "origins": ["https://windydrops.com", "https://*.windydrops.com", "http://localhost:3000", "http://localhost:5173", "http://localhost:8788"],
       "methods": ["GET", "HEAD"],
       "headers": ["*"]
     },
