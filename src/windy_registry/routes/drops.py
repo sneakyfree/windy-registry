@@ -243,3 +243,49 @@ async def list_forks(
         items=[ForkRecord.model_validate(r, from_attributes=True) for r in rows],
         total=total,
     )
+
+
+# ---- WD-9: withdraw endpoint ----
+
+@router.delete(
+    "/{drop_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        404: {"description": "Drop not found"},
+        403: {"description": "Caller does not own this drop"},
+    },
+)
+async def withdraw_drop(
+    drop_id: str,
+    user: AuthUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Hide a drop from search + trending (sets withdrawn_at).
+
+    Per ADR-053 §"Withdrawing": bundles stay on R2 so already-installed users
+    keep working; re-publishing the same id requires explicit confirmation
+    (handled SDK-side by inspecting withdrawn_at).
+    """
+    drop = await session.get(Drop, drop_id)
+    if drop is None:
+        raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
+
+    # Ownership check — caller's passport must appear in any version's manifest.author[].
+    if user.passport is not None:
+        versions = (await session.execute(
+            select(DropVersion.manifest).where(DropVersion.drop_id == drop_id)
+        )).scalars().all()
+        owns = False
+        for manifest in versions:
+            for a in (manifest or {}).get("author") or []:
+                if isinstance(a, dict) and a.get("passport") == user.passport:
+                    owns = True
+                    break
+            if owns:
+                break
+        if not owns:
+            raise HTTPException(status_code=403, detail={"error": "not_author"})
+
+    from datetime import UTC, datetime
+    drop.withdrawn_at = datetime.now(UTC)
+    await session.flush()
