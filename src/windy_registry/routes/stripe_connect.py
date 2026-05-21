@@ -24,8 +24,47 @@ from ..services import stripe_client
 
 router = APIRouter(prefix="/api/v1/me/stripe", tags=["stripe"])
 
-# In-memory state token store. Production: Redis with 10-min TTL.
-_state_store: dict[str, str] = {}
+
+# G14: HMAC-signed stateless state token. No in-memory dict (would lose
+# pending callbacks on restart + couldn't be shared across multi-worker
+# setups). Format: base64url(payload).base64url(hmac_sha256(payload)).
+# 10-min TTL. STRIPE_STATE_SECRET env var pins the key across workers.
+import base64 as _b64
+import hmac as _hmac_mod
+import hashlib as _hashlib_mod
+import json as _json_mod
+import time as _time_mod
+
+
+def _state_secret() -> bytes:
+    return (os.environ.get("STRIPE_STATE_SECRET")
+            or "dev-state-secret-not-for-prod").encode("utf-8")
+
+
+def _sign_state(user_uuid: str) -> str:
+    payload = _json_mod.dumps(
+        {"u": user_uuid, "iat": int(_time_mod.time())},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    enc = _b64.urlsafe_b64encode(payload).rstrip(b"=")
+    sig = _hmac_mod.new(_state_secret(), enc, _hashlib_mod.sha256).digest()
+    sig_enc = _b64.urlsafe_b64encode(sig).rstrip(b"=")
+    return (enc + b"." + sig_enc).decode("ascii")
+
+
+def _verify_state(state: str, max_age: int = 600) -> str | None:
+    try:
+        enc, sig_enc = state.split(".", 1)
+        expected = _hmac_mod.new(_state_secret(), enc.encode(), _hashlib_mod.sha256).digest()
+        actual = _b64.urlsafe_b64decode(sig_enc + "==")
+        if not _hmac_mod.compare_digest(expected, actual):
+            return None
+        payload = _json_mod.loads(_b64.urlsafe_b64decode(enc + "==").decode("utf-8"))
+        if _time_mod.time() - payload["iat"] > max_age:
+            return None
+        return payload["u"]
+    except Exception:
+        return None
 
 
 def _user_uuid(user: AuthUser) -> UUID:
@@ -38,8 +77,7 @@ async def init_connect(
     user: AuthUser = Depends(get_current_user),
 ) -> StripeConnectInitResponse:
     """Generate the Stripe Connect Express OAuth URL."""
-    state = secrets.token_urlsafe(32)
-    _state_store[state] = str(_user_uuid(user))
+    state = _sign_state(str(_user_uuid(user)))
     redirect_uri = os.environ.get(
         "STRIPE_CONNECT_REDIRECT_URI",
         "https://api.windydrops.com/api/v1/me/stripe/callback",
@@ -55,7 +93,7 @@ async def callback(
     session: AsyncSession = Depends(get_session),
 ):
     """Exchange the OAuth code for the connected account id + persist on Author row."""
-    user_uuid_str = _state_store.pop(state, None)
+    user_uuid_str = _verify_state(state)
     if user_uuid_str is None:
         raise HTTPException(status_code=400, detail={"error": "invalid_state"})
 
