@@ -301,3 +301,50 @@ async def withdraw_drop(
     from datetime import UTC, datetime
     drop.withdrawn_at = datetime.now(UTC)
     await session.flush()
+
+
+# ---- WD-23: sandboxed preview ----
+
+from fastapi.responses import HTMLResponse
+
+
+@router.get(
+    "/{drop_id}/preview",
+    response_class=HTMLResponse,
+    responses={404: {"description": "Drop not found"}},
+)
+async def preview(
+    drop_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Serve a sandboxed preview page for a drop.
+
+    Returns HTML hosting an iframe to drops.windydrops.com (separate
+    origin), sandbox="allow-scripts" only, CSP-locked, postMessage
+    protocol injects mock data per the drop's type.
+    """
+    drop = await session.get(Drop, drop_id)
+    if drop is None:
+        raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
+
+    version_row = (await session.execute(
+        select(DropVersion).where(
+            DropVersion.drop_id == drop_id,
+            DropVersion.version == drop.current_version,
+        )
+    )).scalar_one_or_none()
+    # mock_data override from manifest.preview_mock_data is fetched from R2
+    # in v1.1; for now we use the in-process defaults so the harness works
+    # without R2 round-trips.
+
+    from ..config import get_settings
+    settings = get_settings()
+    from ..services.sandbox_host import build_preview_html
+    html = build_preview_html(
+        drop_id=drop_id,
+        version=drop.current_version,
+        drop_type=drop.type,
+        public_bundle_domain=settings.r2_public_domain,
+        mock_data=None,
+    )
+    return HTMLResponse(content=html, status_code=200)
