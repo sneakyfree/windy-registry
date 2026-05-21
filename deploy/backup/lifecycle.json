@@ -1,0 +1,18 @@
+{
+  "Rules": [
+    {
+      "ID": "windy-registry-backup-tiers",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "Transitions": [
+        { "Days": 30, "StorageClass": "GLACIER" },
+        { "Days": 120, "StorageClass": "DEEP_ARCHIVE" }
+      ],
+      "Expiration": { "Days": 365 },
+      "NoncurrentVersionTransitions": [
+        { "NoncurrentDays": 7, "StorageClass": "GLACIER" }
+      ],
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 90 }
+    }
+  ]
+}

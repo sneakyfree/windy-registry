@@ -1,0 +1,13 @@
+[Unit]
+Description=windy-registry nightly Postgres backup
+
+[Timer]
+# Daily at 03:06 UTC — matches the eternitas backup window so the
+# kit-army-config /docs/scheduled-events-tracker.md only has one
+# "backup wave" per night.
+OnCalendar=*-*-* 03:06:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
