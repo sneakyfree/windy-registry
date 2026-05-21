@@ -1,0 +1,40 @@
+name: windy-registry-prod
+
+# Production overlay. Combine with the base compose:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml \
+#     --env-file deploy/.env.production up -d --force-recreate
+#
+# Per feedback_compose_restart_envfile: env changes require --force-recreate,
+# NOT restart.
+
+services:
+  api:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET: ${R2_BUCKET:-windydrops-bundles}
+      R2_PUBLIC_DOMAIN: ${R2_PUBLIC_DOMAIN:-drops.windydrops.com}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      PRO_JWKS_URL: ${PRO_JWKS_URL:-https://account.windyword.ai/.well-known/jwks.json}
+      ETERNITAS_JWKS_URL: ${ETERNITAS_JWKS_URL:-https://api.eternitas.ai/.well-known/eternitas-keys}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "127.0.0.1:8500:8500"  # bind to loopback; Caddy proxies from outside.
+
+  caddy:
+    image: caddy:2.7-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "443:443"
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

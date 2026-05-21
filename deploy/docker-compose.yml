@@ -1,0 +1,41 @@
+name: windy-registry
+
+# Base compose. The production overlay adds Caddy, env vars, and bind mounts.
+# Run dev: docker compose up -d --build
+# Run prod (per ADR-046 + feedback_windy_chat_compose_invocation):
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml \
+#     --env-file deploy/.env.production up -d --force-recreate
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        COMMIT_SHA: "${COMMIT_SHA:-}"
+        BUILD_TIMESTAMP: "${BUILD_TIMESTAMP:-}"
+    image: windy-registry:dev
+    ports:
+      - "8500:8500"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      COMMIT_SHA: ${COMMIT_SHA:-}
+      BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: windyregistry
+      POSTGRES_PASSWORD: windyregistry
+      POSTGRES_DB: windyregistry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  pgdata:

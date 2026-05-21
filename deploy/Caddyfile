@@ -1,0 +1,27 @@
+# Caddyfile — TLS-terminating reverse proxy for windy-registry.
+#
+# Update via `sudo tee /etc/caddy/Caddyfile < new` then `caddy reload`. NEVER
+# restart (per feedback_caddy_inode_binding_v2 — restart breaks inode binding
+# and regresses other hostnames).
+
+api.windydrops.com {
+  reverse_proxy api:8500
+
+  # Pass-through for the /version and /health endpoints so they answer even
+  # if the upstream returns 5xx for other paths.
+  handle /version {
+    reverse_proxy api:8500
+  }
+  handle /health {
+    reverse_proxy api:8500
+  }
+
+  # Encode responses for clients that accept it.
+  encode zstd gzip
+
+  # Structured logging.
+  log {
+    output stdout
+    format json
+  }
+}
