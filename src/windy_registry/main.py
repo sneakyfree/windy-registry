@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from . import __version__
 from .config import get_settings
-from .routes import drops, health, version
+from .routes import drops, health, library, version
 
 
 def create_app() -> FastAPI:
@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(version.router)
     app.include_router(health.router)
     app.include_router(drops.router)
+    app.include_router(library.router)
     return app
 
 
