@@ -64,6 +64,25 @@ def reset_jwks_cache_for_tests() -> None:
     _jwks_cache.clear()
 
 
+async def verify_bundle_bytes(bundle_url: str, expected_sha256: str) -> bool:
+    """G10: optionally re-fetch the bundle from R2 + verify the SHA-256.
+
+    Enabled when WINDY_VERIFY_BUNDLE_BYTES=1 in the env. v1 default trusts
+    the SHA in the request body (publish is auth'd; the SDK that computed
+    the SHA also uploaded the bytes). v1.1 hardening flips this on.
+    """
+    import os
+    if os.environ.get("WINDY_VERIFY_BUNDLE_BYTES") != "1":
+        return True
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            r = await client.get(bundle_url)
+            r.raise_for_status()
+            return hashlib.sha256(r.content).hexdigest() == expected_sha256
+    except Exception:
+        return False
+
+
 async def verify_signature(
     manifest: dict[str, Any],
     bundle_sha256: str,

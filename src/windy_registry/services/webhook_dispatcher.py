@@ -64,6 +64,44 @@ async def _attempt_delivery(
         return None, str(e)[:1024]
 
 
+# F16: real retry with exponential backoff (1s, 2s, 4s, 8s, 16s).
+# Stays in-process; v1.1 will move to a Redis-backed worker queue per the
+# ADR-053 §"Webhook substrate" promise.
+_RETRY_DELAYS_SECONDS = (1, 2, 4, 8, 16)
+
+
+async def _attempt_delivery_with_retry(
+    *,
+    callback_url: str,
+    body_bytes: bytes,
+    secret: str,
+    max_attempts: int = 5,
+    sleep_fn=None,
+) -> tuple[int | None, str | None, int]:
+    """Delivery with exponential backoff. Retries on 5xx, 408, 429, or
+    connection-level failures. Stops early on 2xx or non-retryable 4xx.
+
+    Returns (final_status, final_body, attempt_count). `sleep_fn` is the
+    async sleep override hook for tests (default: asyncio.sleep).
+    """
+    import asyncio
+    sleep = sleep_fn or asyncio.sleep
+    status: int | None = None
+    body: str | None = None
+    for attempt in range(max_attempts):
+        if attempt > 0:
+            delay = _RETRY_DELAYS_SECONDS[min(attempt - 1, len(_RETRY_DELAYS_SECONDS) - 1)]
+            await sleep(delay)
+        status, body = await _attempt_delivery(
+            callback_url=callback_url, body_bytes=body_bytes, secret=secret,
+        )
+        if status is not None and 200 <= status < 300:
+            return status, body, attempt + 1
+        if status is not None and 400 <= status < 500 and status not in (408, 429):
+            return status, body, attempt + 1
+    return status, body, max_attempts
+
+
 async def dispatch_event(
     session: AsyncSession,
     event_type: str,
@@ -112,13 +150,12 @@ async def dispatch_event(
             notified.append(sub.id)
             continue
 
-        # Try once inline. Real backoff/retry would live in a worker; for now we
-        # record the single attempt synchronously so a webhook receiver test can
-        # observe the POST happening.
-        status, resp = await _attempt_delivery(
+        # F16: real retry with exponential backoff (1s, 2s, 4s, 8s, 16s).
+        # Up to 5 attempts; stops early on 2xx or non-retryable 4xx.
+        status, resp, attempts = await _attempt_delivery_with_retry(
             callback_url=sub.callback_url,
             body_bytes=body_bytes,
-            secret=sub.secret_hash,  # see note in subscribe(): we store the secret here
+            secret=sub.secret_hash,
         )
         from datetime import UTC, datetime
         succeeded_at = datetime.now(UTC) if status is not None and 200 <= status < 300 else None
@@ -130,7 +167,7 @@ async def dispatch_event(
             status_code=status,
             response_body_trunc=resp,
             succeeded_at=succeeded_at,
-            retry_count=0,
+            retry_count=attempts - 1,
         ))
         if succeeded_at is None:
             sub.consecutive_failures = (sub.consecutive_failures or 0) + 1

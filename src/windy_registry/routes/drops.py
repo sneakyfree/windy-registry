@@ -97,6 +97,15 @@ async def publish(
                 detail={"error": "caller_passport_not_in_authors"},
             )
 
+    # G10: opt-in bundle SHA re-verify (set WINDY_VERIFY_BUNDLE_BYTES=1 in prod).
+    from ..services.signature_verify import verify_bundle_bytes
+    if not await verify_bundle_bytes(str(body.bundle_url), body.bundle_sha256):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "bundle_sha_mismatch",
+                    "message": "re-fetched bundle bytes do not hash to the claimed SHA-256"},
+        )
+
     # 4. Verify signature if present.
     sig_verified = False
     signer_passport: str | None = None
