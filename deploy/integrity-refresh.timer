@@ -1,0 +1,11 @@
+[Unit]
+Description=windy-registry nightly Eternitas integrity refresh
+
+[Timer]
+# Daily at 04:06 UTC — one hour after pg_backup so they don't contend.
+OnCalendar=*-*-* 04:06:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

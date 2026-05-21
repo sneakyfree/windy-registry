@@ -1,0 +1,89 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# G3: rsync-from-runner deploy. Pattern mirrors windy-mind PR #37 +
+# windy-cloud's per-service in-place compose. The workflow:
+#   1. rsyncs src/ + alembic/ + deploy/* to the production host's
+#      /opt/windy-registry/ tree
+#   2. runs `alembic upgrade head` inside the running api container
+#   3. force-recreates the api container (NEW env or build args land cleanly)
+#   4. probes /version + /health/full to verify the deploy
+#
+# Secrets required (set via gh secret set):
+#   DEPLOY_HOST            — e.g., api.windydrops.com or the EC2 IP
+#   DEPLOY_USER            — typically `ubuntu`
+#   DEPLOY_SSH_KEY         — full PEM contents (no passphrase)
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository == 'sneakyfree/windy-registry'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Snapshot existing deploy tree (rollback breadcrumb)
+        run: |
+          ssh -i ~/.ssh/deploy.pem ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "sudo cp -a /opt/windy-registry /opt/windy-registry.pre-$(date -u +%Y%m%dT%H%M%SZ) || true"
+
+      - name: Rsync code to host
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy.pem" \
+            --exclude='__pycache__' --exclude='.venv' --exclude='.pytest_cache' \
+            src/ alembic/ alembic.ini pyproject.toml README.md deploy/ \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/windy-registry/
+
+      - name: Inject build identity into env
+        run: |
+          ssh -i ~/.ssh/deploy.pem ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<EOF
+            cd /opt/windy-registry
+            sudo touch deploy/.env.production
+            sudo sed -i '/^COMMIT_SHA=/d;/^BUILD_TIMESTAMP=/d' deploy/.env.production
+            echo "COMMIT_SHA=${{ github.sha }}" | sudo tee -a deploy/.env.production
+            echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" | sudo tee -a deploy/.env.production
+          EOF
+
+      - name: Compose up with --force-recreate
+        run: |
+          ssh -i ~/.ssh/deploy.pem ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
+            cd /opt/windy-registry
+            sudo docker compose \
+              -f deploy/docker-compose.yml \
+              -f deploy/docker-compose.prod.yml \
+              --env-file deploy/.env.production \
+              up -d --build --force-recreate
+          EOF
+
+      - name: Run alembic migrations
+        run: |
+          ssh -i ~/.ssh/deploy.pem ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cd /opt/windy-registry && sudo docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml exec -T api alembic upgrade head"
+
+      - name: Probe /version + /health/full
+        run: |
+          for i in 1 2 3 4 5 6; do
+            sleep 5
+            if curl -fsS https://api.windydrops.com/version | grep -q "${{ github.sha }}"; then
+              echo "✓ /version reports commit ${{ github.sha }}"
+              curl -fsS https://api.windydrops.com/health/full
+              exit 0
+            fi
+            echo "retry $i — /version not yet reporting new sha"
+          done
+          echo "✗ /version still stale after 30s — investigate"
+          exit 1

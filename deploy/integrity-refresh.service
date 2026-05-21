@@ -1,0 +1,11 @@
+[Unit]
+Description=windy-registry Eternitas integrity_band nightly refresh
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/windy-registry-backup.env
+ExecStart=/usr/bin/docker compose -f /opt/windy-registry/deploy/docker-compose.yml -f /opt/windy-registry/deploy/docker-compose.prod.yml exec -T api python -m windy_registry.jobs.refresh_integrity
+StandardOutput=journal
+StandardError=journal
