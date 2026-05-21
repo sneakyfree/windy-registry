@@ -19,8 +19,10 @@ jobs:
       - name: Install
         run: |
           uv venv
-          uv pip install -e '.[test]' ruff
+          uv pip install -e '.[db,test]' ruff
       - name: Lint
         run: .venv/bin/ruff check src/ tests/
       - name: Test
         run: .venv/bin/pytest tests/ -v
+      - name: Alembic offline check (upgrade DDL renders)
+        run: .venv/bin/alembic upgrade head --sql > /tmp/upgrade.sql && head -10 /tmp/upgrade.sql
