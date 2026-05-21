@@ -121,6 +121,14 @@ async def install(
     )
     session.add(row)
     await session.flush()
+
+    # WD-21: emit drop.installed.
+    from ..services.webhook_dispatcher import dispatch_event
+    await dispatch_event(
+        session, "drop.installed",
+        {"drop_id": body.drop_id, "version": requested_version, "user_id": str(uid)},
+        skip_async=True,
+    )
     return LibraryRow.model_validate(row, from_attributes=True)
 
 

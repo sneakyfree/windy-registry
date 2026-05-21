@@ -155,7 +155,19 @@ async def publish(
     session.add(version_row)
     await session.flush()  # commit happens in get_session() dependency teardown
 
-    # 8. TODO(WD-21): emit drop.published webhook event.
+    # 8. Emit drop.published webhook event (WD-21).
+    from ..services.webhook_dispatcher import dispatch_event
+    await dispatch_event(
+        session,
+        "drop.published",
+        {
+            "drop_id": drop_id,
+            "version": version_str,
+            "type": drop_type,
+            "signer_passport": signer_passport,
+        },
+        skip_async=True,  # v1: record-only; real POSTs land in prod once subscribers come online
+    )
 
     return PublishedDrop(
         drop_id=drop_id,

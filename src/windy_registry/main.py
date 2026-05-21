@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from . import __version__
 from .config import get_settings
-from .routes import browse, drops, health, library, ratings, version
+from .routes import browse, drops, health, library, ratings, version, webhooks
 
 
 def create_app() -> FastAPI:
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(browse.router)
     app.include_router(browse.public_router)
     app.include_router(ratings.router)
+    app.include_router(webhooks.router)
     return app
 
 
