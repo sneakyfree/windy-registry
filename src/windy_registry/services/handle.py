@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _SAFE = re.compile(r"[^a-z0-9-]+")
 
 
@@ -61,6 +60,7 @@ async def ensure_unique_handle(
     is owned by THIS passport, returns the unsuffixed handle (idempotent).
     """
     from sqlalchemy import select
+
     from ..models import Author
 
     candidate = base

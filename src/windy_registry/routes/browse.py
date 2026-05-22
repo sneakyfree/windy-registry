@@ -81,7 +81,7 @@ async def browse(
         stmt = stmt.where(Drop.type == type)
     if tag:
         # JSON path query — works in both Postgres (JSONB) and SQLite (JSON via cast).
-        stmt = stmt.where(func.json_extract(cv.manifest, f"$.tags").like(f"%{tag}%"))
+        stmt = stmt.where(func.json_extract(cv.manifest, "$.tags").like(f"%{tag}%"))
     if lang:
         stmt = stmt.where(func.json_extract(cv.manifest, "$.locale_hint") == lang)
     if q:
@@ -103,8 +103,8 @@ async def browse(
             stmt = stmt.where(
                 (Drop.created_at < ts) | ((Drop.created_at == ts) & (Drop.id > last_id))
             )
-        except Exception:
-            raise HTTPException(status_code=400, detail={"error": "invalid_cursor"})
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail={"error": "invalid_cursor"}) from exc
 
     stmt = stmt.order_by(desc(Drop.created_at), Drop.id).limit(limit)
     rows = (await session.execute(stmt)).all()
@@ -200,7 +200,6 @@ async def trending(
     followed_passports: set[str] = set()
     if user is not None:
         from ..routes.authors import _user_uuid as _author_uid
-        from ..middleware.auth import AuthUser
         uid = _author_uid(user)
         follows = (await session.execute(
             select(Follow.followed_handle).where(Follow.follower_user_id == uid)

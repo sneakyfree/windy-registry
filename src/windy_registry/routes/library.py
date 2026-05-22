@@ -155,7 +155,7 @@ async def _install_dependencies(
     if depth >= 5:
         return
     seen = seen or set()
-    from ..models import DropVersion as _DV
+    from ..models import DropVersion as _DropVer
     for d in deps:
         if not isinstance(d, dict):
             continue
@@ -171,7 +171,7 @@ async def _install_dependencies(
             continue
         dep_version = d.get("version") or dep_drop.current_version
         dep_row = (await session.execute(
-            select(_DV).where(_DV.drop_id == dep_id, _DV.version == dep_version)
+            select(_DropVer).where(_DropVer.drop_id == dep_id, _DropVer.version == dep_version)
         )).scalar_one_or_none()
         if dep_row is None:
             continue

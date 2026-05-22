@@ -29,7 +29,7 @@ class Drop(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    versions: Mapped[list["DropVersion"]] = relationship(
+    versions: Mapped[list[DropVersion]] = relationship(
         back_populates="drop",
         cascade="all, delete-orphan",
         passive_deletes=True,

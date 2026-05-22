@@ -8,7 +8,6 @@ author's lifetime_tips_cents.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 from uuid import UUID, uuid4
 

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import WebhookDelivery, WebhookSubscription
 
+
 # Stored secret_hash is sha256(secret) — same hash we re-derive at HMAC time so
 # webhook secrets are never persisted in cleartext.
 def hash_secret(secret: str) -> str:
@@ -84,7 +85,6 @@ async def _attempt_delivery_with_retry(
     Returns (final_status, final_body, attempt_count). `sleep_fn` is the
     async sleep override hook for tests (default: asyncio.sleep).
     """
-    import asyncio
     sleep = sleep_fn or asyncio.sleep
     status: int | None = None
     body: str | None = None

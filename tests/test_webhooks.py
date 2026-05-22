@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -16,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from windy_registry.database import Base, get_session
 from windy_registry.middleware.auth import AuthUser, get_current_user
-from windy_registry.models import Drop, DropVersion, WebhookDelivery
+from windy_registry.models import WebhookDelivery
 from windy_registry.models.drop import Drop as DropModel
 from windy_registry.services.webhook_dispatcher import dispatch_event
 
@@ -93,7 +92,6 @@ async def test_unsubscribe_removes_row(db_session: AsyncSession) -> None:
 
 
 def test_event_types_endpoint_is_public() -> None:
-    client = TestClient(_app.__wrapped__ if hasattr(_app, "__wrapped__") else None) if False else None
     # The endpoint is public — TestClient should reach it without auth override.
     from windy_registry.main import create_app
     plain = TestClient(create_app())
@@ -105,11 +103,11 @@ def test_event_types_endpoint_is_public() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_event_records_delivery_skip_async(db_session: AsyncSession) -> None:
     client = TestClient(_app(db_session))
-    sub = client.post("/api/v1/webhooks/subscribe", json={
+    client.post("/api/v1/webhooks/subscribe", json={
         "callback_url": "https://x.example.com/hook",
         "event_types": ["drop.published"],
         "secret": "x" * 32,
-    }).json()
+    })
 
     # Manually call the dispatcher in skip_async mode (matches what publish does).
     notified = await dispatch_event(

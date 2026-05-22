@@ -93,14 +93,21 @@ def build_preview_html(
     # allow-same-origin = parent DOM unreachable.
     iframe_src = f"https://{public_bundle_domain}/{drop_id}/{version}/render.html"
     payload_json = json.dumps(payload, separators=(",", ":"))
+    csp = (
+        f"default-src 'none'; "
+        f"img-src https://{public_bundle_domain} data:; "
+        f"script-src 'unsafe-inline'; "
+        f"frame-src https://{public_bundle_domain}; "
+        f"style-src 'unsafe-inline'; "
+        f"connect-src 'none';"
+    )
 
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Preview: {_escape(drop_id)} @ {_escape(version)}</title>
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src https://{public_bundle_domain} data:; script-src 'unsafe-inline'; frame-src https://{public_bundle_domain}; style-src 'unsafe-inline'; connect-src 'none';">
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
   body {{ margin: 0; padding: 0; background: #0a0e14; }}
   iframe {{ width: 100vw; height: 100vh; border: 0; display: block; }}

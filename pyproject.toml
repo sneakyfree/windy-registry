@@ -26,7 +26,11 @@ dependencies = [
     "httpx>=0.27",
     "tenacity>=8",
     "pyyaml>=6",
-    "windy-drops-spec>=0.1",
+    # windy_drops_spec is vendored at src/windy_drops_spec/ (see that
+    # directory's VENDOR.md). Canonical source is
+    # sneakyfree/windy-drops:python/artifact-spec/ but is not yet on PyPI;
+    # vendoring keeps the registry self-deployable. Drift-guarded by
+    # tests/test_vendor_drift.py.
 ]
 
 [project.optional-dependencies]
@@ -49,6 +53,7 @@ test = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
+    "aiosqlite>=0.20",
 ]
 all = [
     "windy-registry[db,auth,stripe,r2,test]",
@@ -60,7 +65,7 @@ Repository = "https://github.com/sneakyfree/windy-registry"
 Issues = "https://github.com/sneakyfree/windy-registry/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/windy_registry"]
+packages = ["src/windy_registry", "src/windy_drops_spec"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -69,7 +74,21 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
+extend-exclude = [
+    # Vendored from sneakyfree/windy-drops; _generated.py is codegen output
+    # whose line lengths come from upstream JSON Schema docstrings. Treat
+    # the whole package as third-party for linting purposes; drift-guarded
+    # in tests/test_vendor_drift.py.
+    "src/windy_drops_spec",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B"]
+ignore = [
+    # FastAPI idiom: `Depends(...)` in default args is the documented
+    # pattern. Ruff's B008 flags it as a side-effect-in-default-arg, but
+    # it's intentional dependency injection. Universally disabled in
+    # FastAPI projects.
+    "B008",
+]

@@ -10,24 +10,23 @@ a CI Postgres service container.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import JSON
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from windy_registry.database import Base, get_session
 from windy_registry.middleware.auth import AuthUser, get_current_user
-from windy_registry.routes import drops as drops_route
-from windy_registry.services import signature_verify
-from windy_registry.services.signature_verify import VerifyResult
 
 # Disable the pgvector column on SQLite (it's nullable and unused for publish).
 from windy_registry.models.drop import Drop as DropModel  # noqa: F401  side-effect
-from sqlalchemy import JSON, Column
+from windy_registry.routes import drops as drops_route
+from windy_registry.services.signature_verify import VerifyResult
 
 
 def _swap_postgres_specific_cols_for_sqlite() -> None:
