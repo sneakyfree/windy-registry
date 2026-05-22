@@ -2,7 +2,8 @@
 
 Validates Bearer tokens against either:
   * Pro account-server JWKS (RS256 — human users; per `feedback_jwks_split_brain`,
-    use `account.windyword.ai`, NOT `api.windyword.ai`)
+    use `account.windyword.ai`, NOT the legacy `api.*` host which still serves
+    a stale RS256 keypair)
   * Eternitas JWKS (ES256 — agents)
 
 Try Pro first because RS256 verification is cheaper, fall back to Eternitas on
