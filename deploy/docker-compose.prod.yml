@@ -1,15 +1,26 @@
 name: windy-registry-prod
 
-# Production overlay. Combine with the base compose:
+# Production overlay for the SHARED EC2 host (54.88.113.79).
+#
+# The host already runs a Caddy container (deploy-caddy-1) on the
+# deploy_backend network that handles TLS + reverse-proxy for every Windy
+# service. This overlay attaches our api container to that network so
+# Caddy can resolve `windy-registry-api` and proxy to port 8500.
+#
+# Combine with the base compose:
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml \
 #     --env-file deploy/.env.production up -d --force-recreate
 #
 # Per feedback_compose_restart_envfile: env changes require --force-recreate,
 # NOT restart.
+# Per feedback_compose_project_name_collision: `-p windy-registry-prod`
+# must match the `name:` directive above.
 
 services:
   api:
+    container_name: windy-registry-api  # stable DNS name for Caddy
     environment:
+      ENVIRONMENT: production
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
@@ -21,20 +32,17 @@ services:
       ETERNITAS_JWKS_URL: ${ETERNITAS_JWKS_URL:-https://api.eternitas.ai/.well-known/eternitas-keys}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-    ports:
-      - "127.0.0.1:8500:8500"  # bind to loopback; Caddy proxies from outside.
+    ports: !reset []                    # base compose binds 8500 publicly; reset so only the shared Caddy reaches us
+    networks:
+      - default                          # postgres + redis sit here
+      - deploy_backend                   # so deploy-caddy-1 can resolve us
 
-  caddy:
-    image: caddy:2.7-alpine
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    ports:
-      - "443:443"
-      - "80:80"
-    restart: unless-stopped
+  postgres:
+    container_name: windy-registry-postgres
 
-volumes:
-  caddy_data:
-  caddy_config:
+  redis:
+    container_name: windy-registry-redis
+
+networks:
+  deploy_backend:
+    external: true
