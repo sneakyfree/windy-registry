@@ -24,7 +24,10 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 ships the `vector` extension that alembic's
+    # 0001_initial creates for the `drops.embedding` column. Plain
+    # postgres:16-alpine doesn't include it.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: windyregistry
       POSTGRES_PASSWORD: windyregistry
