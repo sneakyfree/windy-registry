@@ -122,18 +122,26 @@ def build_preview_html(
 <script>
 (function() {{
   // Sandbox host postMessage protocol per ADR-053 §"Sandbox security model (v1)".
-  const TARGET_ORIGIN = "https://{public_bundle_domain}";
+  // The iframe sandbox attribute on this page is scripts-only (no same-origin
+  // grant), which forces the iframe into a null origin: messages FROM the
+  // iframe arrive with event.origin === "null", and messages TO the iframe
+  // must use targetOrigin "*" (spec doesn't permit "null" as a targetOrigin
+  // value). The real security boundary is the event.source === frame.contentWindow
+  // check below. CSP frame-src still pins WHERE the iframe loads from; only
+  // its post-load origin is null.
+  const SANDBOX_ORIGIN = "null";
   const mockPayload = {payload_json};
   const frame = document.getElementById("drop-frame");
 
   function send(msg) {{
     if (frame && frame.contentWindow) {{
-      frame.contentWindow.postMessage(msg, TARGET_ORIGIN);
+      frame.contentWindow.postMessage(msg, "*");
     }}
   }}
 
   window.addEventListener("message", function(event) {{
-    if (event.origin !== TARGET_ORIGIN) return;  // parent DOM lockdown
+    if (!frame || event.source !== frame.contentWindow) return;
+    if (event.origin !== SANDBOX_ORIGIN) return;
     const msg = event.data || {{}};
     if (msg.type === "ready") {{
       send({{ type: "mock-data", payload: mockPayload }});
