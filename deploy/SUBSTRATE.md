@@ -4,10 +4,11 @@ Per ADR-048 (substrate-as-code). Documents the operational realities every deplo
 
 ## Deploy target
 
-- **Host:** TBD at first prod cutover (probably consolidated onto an existing AWS EC2 host or a new t3.small in us-east-1)
-- **Reverse proxy:** Caddy 2.7+, container, terminates TLS via CF origin cert
-- **Public domain:** `api.windydrops.com` (registry API) + `drops.windydrops.com` (R2 bundle CDN, separate origin)
-- **Internal port:** API at `127.0.0.1:8500` (Caddy proxies)
+- **Host:** Shared EC2 `54.88.113.79` at `/opt/windy-registry/deploy-prod/`, alongside the other Windy services (windy-pro, eternitas, windy-clone, windy-mail, windy-search, windy-call/text/cell).
+- **Reverse proxy:** The host's shared `deploy-caddy-1` container (deployed under the windy-mail compose). Vhost routes are added via Caddy's admin API on port 2019 and persisted to `/config/caddy/autosave.json`. TLS auto via Let's Encrypt + zerossl fallback.
+- **Network:** `deploy_backend` (external, bridge). Our api container attaches here so Caddy can resolve `windy-registry-api:8500`.
+- **Public domain:** `api.windydrops.com` (registry API) + `drops.windydrops.com` (R2 bundle CDN, separate origin).
+- **Container DNS names:** `windy-registry-api`, `windy-registry-postgres`, `windy-registry-redis` (set via `container_name:` so Caddy DNS resolution survives recreates).
 
 ## Compose invocation
 
