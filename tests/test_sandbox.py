@@ -91,13 +91,23 @@ def test_csp_blocks_inline_navigation_and_network() -> None:
     assert "default-src 'none'" in html
 
 
-def test_postmessage_target_origin_locked_to_bundle_domain() -> None:
+def test_postmessage_locks_to_sandbox_null_origin() -> None:
+    """sandbox="allow-scripts" forces null origin; parent must lock the
+    inbound origin string to "null" and use "*" as the targetOrigin when
+    sending, matching the canonical host-web pattern at
+    sneakyfree/windy-control-panel:packages/host-web/src/host.ts."""
     html = build_preview_html(
         drop_id="x", version="1.0.0", drop_type="skill",
         public_bundle_domain="drops.windydrops.com",
     )
-    # postMessage targets the bundle domain only; parent never speaks to itself.
-    assert 'TARGET_ORIGIN = "https://drops.windydrops.com"' in html
+    # Inbound origin lock is the literal string "null", not the bundle URL —
+    # the iframe's runtime origin is null regardless of where its src points.
+    assert 'SANDBOX_ORIGIN = "null"' in html
+    assert 'TARGET_ORIGIN = "https://drops.windydrops.com"' not in html
+    # Real security boundary: source identity check.
+    assert "event.source !== frame.contentWindow" in html
+    # Outbound: spec doesn't permit "null" as targetOrigin, so use "*".
+    assert 'postMessage(msg, "*")' in html
 
 
 @pytest.mark.asyncio
