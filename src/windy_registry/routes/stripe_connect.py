@@ -7,12 +7,20 @@ GET  /api/v1/me/stripe/status    — connected state for the current user
 
 from __future__ import annotations
 
+# G14: HMAC-signed stateless state token. No in-memory dict (would lose
+# pending callbacks on restart + couldn't be shared across multi-worker
+# setups). Format: base64url(payload).base64url(hmac_sha256(payload)).
+# 10-min TTL. STRIPE_STATE_SECRET env var pins the key across workers.
+import base64 as _b64
 import hashlib
+import hashlib as _hashlib_mod
+import hmac as _hmac_mod
+import json as _json_mod
 import os
-import secrets
+import time as _time_mod
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,17 +31,6 @@ from ..schemas.stripe_ import StripeConnectInitResponse, StripeStatusResponse
 from ..services import stripe_client
 
 router = APIRouter(prefix="/api/v1/me/stripe", tags=["stripe"])
-
-
-# G14: HMAC-signed stateless state token. No in-memory dict (would lose
-# pending callbacks on restart + couldn't be shared across multi-worker
-# setups). Format: base64url(payload).base64url(hmac_sha256(payload)).
-# 10-min TTL. STRIPE_STATE_SECRET env var pins the key across workers.
-import base64 as _b64
-import hmac as _hmac_mod
-import hashlib as _hashlib_mod
-import json as _json_mod
-import time as _time_mod
 
 
 def _state_secret() -> bytes:

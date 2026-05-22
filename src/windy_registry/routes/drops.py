@@ -13,9 +13,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from windy_drops_spec import DropManifest
 
 from ..database import get_session
@@ -314,8 +316,6 @@ async def withdraw_drop(
 
 # ---- WD-23: sandboxed preview ----
 
-from fastapi.responses import HTMLResponse
-
 
 @router.get(
     "/{drop_id}/preview",
@@ -336,12 +336,6 @@ async def preview(
     if drop is None:
         raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
 
-    version_row = (await session.execute(
-        select(DropVersion).where(
-            DropVersion.drop_id == drop_id,
-            DropVersion.version == drop.current_version,
-        )
-    )).scalar_one_or_none()
     # mock_data override from manifest.preview_mock_data is fetched from R2
     # in v1.1; for now we use the in-process defaults so the harness works
     # without R2 round-trips.
@@ -397,7 +391,10 @@ async def oembed(
         "author_name": author_name,
         "provider_name": "Windy Drops",
         "provider_url": "https://windydrops.com",
-        "html": f'<iframe src="https://api.windydrops.com/api/v1/drops/{drop_id}/preview" width="600" height="400" frameborder="0" sandbox="allow-scripts"></iframe>',
+        "html": (
+            f'<iframe src="https://api.windydrops.com/api/v1/drops/{drop_id}/preview"'
+            ' width="600" height="400" frameborder="0" sandbox="allow-scripts"></iframe>'
+        ),
         "width": 600,
         "height": 400,
     }
@@ -422,8 +419,8 @@ async def og_metadata(
     )).scalar_one_or_none()
     if version_row is None:
         raise HTTPException(status_code=500, detail={"error": "missing_current_version"})
-    from ..services.i18n import resolve_i18n
     from ..config import get_settings
+    from ..services.i18n import resolve_i18n
     settings = get_settings()
     manifest = version_row.manifest or {}
     name = resolve_i18n(manifest.get("name"), "en") or drop_id

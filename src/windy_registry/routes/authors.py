@@ -166,11 +166,13 @@ async def author_drops(
             if not isinstance(a, dict):
                 continue
             if passport and a.get("passport") == passport:
-                match = True; break
+                match = True
+                break
             cs = a.get("callsign", "")
             nm = a.get("name", "")
             if cs.lower() == handle.lower() or nm.lower().replace(" ", "-") == handle.lower():
-                match = True; break
+                match = True
+                break
         if not match:
             continue
         drop = await session.get(Drop, v.drop_id)

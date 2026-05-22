@@ -17,10 +17,9 @@ import re
 import time
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-
 
 EXEMPT_PATHS = {"/version", "/health", "/health/full", "/api/v1/webhooks/stripe"}
 _EXEMPT_PREFIXES = ("/.well-known/", "/docs", "/openapi.json")

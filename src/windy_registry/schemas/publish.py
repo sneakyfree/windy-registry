@@ -17,7 +17,10 @@ class PublishRequest(BaseModel):
     )
     bundle_url: HttpUrl = Field(
         ...,
-        description="Public URL of the immutable bundle on R2 (drops.windydrops.com/<id>/<version>/<id>-<version>.zip).",
+        description=(
+            "Public URL of the immutable bundle on R2 "
+            "(drops.windydrops.com/<id>/<version>/<id>-<version>.zip)."
+        ),
     )
     bundle_sha256: str = Field(
         ...,

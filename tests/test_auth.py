@@ -26,14 +26,13 @@ from fastapi.testclient import TestClient
 from jose import jwt
 
 from windy_registry.config import get_settings
+from windy_registry.middleware import auth as auth_module
 from windy_registry.middleware.auth import (
     AuthUser,
     get_current_user,
     get_current_user_optional,
     reset_jwks_cache_for_tests,
 )
-from windy_registry.middleware import auth as auth_module
-
 
 # -------- key generation + JWKS helpers --------
 
