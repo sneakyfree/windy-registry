@@ -39,15 +39,25 @@ jobs:
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Rsync code to host
-        # --delete is scoped to the listed source dirs only (src/, alembic/,
-        # deploy/, etc.) — does NOT touch /opt/windy-registry/deploy-prod/
-        # where .env.production lives.
+        # NOTE: this used to pass multiple trailing-slash sources
+        # (`src/ alembic/ deploy/ ...`), which makes rsync *merge*
+        # their contents into the destination at the same level —
+        # so src/foo.py ended up at /opt/windy-registry/foo.py
+        # instead of /opt/windy-registry/src/foo.py. Caught the hard
+        # way during the first auto-deploy run (#7).
+        #
+        # Fix: rsync the checked-out repo root (`./`) as a single
+        # source. `--delete` cleans up extraneous files except
+        # deploy-prod/ which holds operator-managed state
+        # (.env.production + the active compose files).
         run: |
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy.pem" \
+            --exclude='.git/' --exclude='.github/' \
             --exclude='__pycache__' --exclude='.venv' --exclude='.pytest_cache' \
             --exclude='.ruff_cache' --exclude='*.pyc' \
-            src/ alembic/ alembic.ini pyproject.toml README.md deploy/ \
+            --exclude='deploy-prod/' \
+            ./ \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/windy-registry/
 
       - name: Refresh deploy-prod compose files from latest
