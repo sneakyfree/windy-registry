@@ -12,8 +12,9 @@ ENV PYTHONUNBUFFERED=1
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY src ./src
+COPY alembic ./alembic
 
 RUN uv pip install --system -e '.[db,auth,stripe,r2]'
 
