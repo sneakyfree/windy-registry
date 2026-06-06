@@ -71,6 +71,9 @@ packages = ["src/windy_registry", "src/windy_drops_spec"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "r2: live R2 round-trip; skipped unless R2_* creds are exported",
+]
 
 [tool.ruff]
 target-version = "py311"

@@ -19,14 +19,14 @@ The central registry service for [Windy Drops](https://windydrops.com) — the o
 |---|---|---|
 | WD-12 | repo bootstrap + FastAPI + /version + /health | done |
 | WD-13 | R2 bucket + drops.windydrops.com domain | pending |
-| WD-14 | Postgres schema + Alembic | pending |
-| WD-15 | dual JWKS auth middleware | pending |
-| WD-16 | browse + search + trending | pending |
-| WD-17 | library install/uninstall/list | pending |
-| WD-18 | publish + signature verify | pending |
-| WD-19 | fork + lineage | pending |
-| WD-20 | ratings + reviews | pending |
-| WD-21 | webhook substrate | pending |
+| WD-14 | Postgres schema + Alembic | done |
+| WD-15 | dual JWKS auth middleware | done |
+| WD-16 | browse + search + trending | done |
+| WD-17 | library install/uninstall/list | done |
+| WD-18 | publish + signature verify | done |
+| WD-19 | fork + lineage | done |
+| WD-20 | ratings + reviews | done |
+| WD-21 | webhook substrate | done |
 | WD-22 | Postgres backup (MF4) | pending |
 
 ## Run locally
