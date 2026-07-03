@@ -47,6 +47,24 @@ def create_app() -> FastAPI:
         enabled=(settings.environment == "production"),
     )
 
+    # CORS: the marketplace frontend (windydrops.com) fetches this API directly
+    # from the browser. Without these headers the browser blocks every request
+    # and the Browse page shows "Couldn't load drops — Failed to fetch". Allow
+    # the marketplace's own origins (added last → outermost, so even rate-limited
+    # 429 responses carry the CORS headers).
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://windydrops.com",
+            "https://www.windydrops.com",
+            "https://windydrops.pages.dev",
+        ],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=True,
+    )
+
     app.include_router(version.router)
     app.include_router(health.router)
     app.include_router(drops.router)
