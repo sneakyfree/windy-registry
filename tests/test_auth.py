@@ -172,6 +172,29 @@ def test_pro_rs256_jwt_accepted(client, patched_httpx, keys):
     assert body["passport"] is None
 
 
+def test_pro_rs256_jwt_with_eternitas_passport_populates_passport(client, patched_httpx, keys):
+    # A Pro token issued to an agent (or an agent-operating human) carries the
+    # `eternitas_passport` claim; the middleware must surface it as `passport`
+    # so the drop ownership gates apply. Ignoring it was the root of the
+    # publish-as-anyone / withdraw-anyone bypass.
+    token = jwt.encode(
+        {
+            "sub": "wid_agent",
+            "exp": int(time.time()) + 3600,
+            "iss": "https://account.windyword.ai",
+            "eternitas_passport": "ET26-TEST-0001",
+        },
+        keys["pro_priv"].decode(),
+        algorithm="RS256",
+        headers={"kid": "pro-kid-1"},
+    )
+    r = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tier"] == "human"
+    assert body["passport"] == "ET26-TEST-0001"
+
+
 def test_eternitas_es256_jwt_accepted(client, patched_httpx, keys):
     token = jwt.encode(
         {

@@ -240,3 +240,64 @@ def test_valid_signature_records_signer_attributes(
     assert body["signer_passport"] == "ET26-TEST-0001"
     assert body["signer_integrity_band"] == "fair"
     assert body["signer_clearance_level"] == "verified"
+
+
+def _override_user(app: FastAPI, passport: str | None) -> None:
+    async def override() -> AuthUser:
+        return AuthUser(
+            subject="caller",
+            issuer=None,
+            tier="agent" if passport else "human",
+            passport=passport,
+            integrity_band=None,
+            clearance_level=None,
+            raw_claims={},
+        )
+
+    app.dependency_overrides[get_current_user] = override
+
+
+def test_passportless_caller_cannot_publish_as_a_passport_holder(
+    app: FastAPI, client: TestClient
+) -> None:
+    # A human Pro JWT (passport=None) must not be able to publish a drop that
+    # declares an author passport — the pre-fix gate skipped entirely when the
+    # caller had no passport, allowing publish-as-anyone.
+    _override_user(app, None)
+    r = client.post(
+        "/api/v1/drops",
+        json={
+            "manifest": minimal_manifest(),  # declares ET26-TEST-0001 as author
+            "bundle_url": VALID_BUNDLE_URL,
+            "bundle_sha256": VALID_BUNDLE_SHA,
+        },
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"] == "caller_passport_not_in_authors"
+
+
+def test_cannot_publish_new_version_of_drop_you_do_not_own(
+    app: FastAPI, client: TestClient
+) -> None:
+    # First publish by the owning agent (default app fixture user).
+    assert client.post(
+        "/api/v1/drops",
+        json={
+            "manifest": minimal_manifest("hijack-me"),
+            "bundle_url": VALID_BUNDLE_URL,
+            "bundle_sha256": VALID_BUNDLE_SHA,
+        },
+    ).status_code == 201
+
+    # A different agent tries to push a new version declaring ITS OWN passport as
+    # author — impersonation gate passes, but the id-hijack gate must block it.
+    _override_user(app, "ET26-ATCK-0002")
+    m = minimal_manifest("hijack-me")
+    m["version"] = "2.0.0"
+    m["author"] = [{"name": "Attacker", "passport": "ET26-ATCK-0002", "type": "human"}]
+    r = client.post(
+        "/api/v1/drops",
+        json={"manifest": m, "bundle_url": VALID_BUNDLE_URL, "bundle_sha256": "c" * 64},
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"] == "not_author"

@@ -111,11 +111,19 @@ async def _resolve_user(
     # Pro first (RS256 = faster); fall back to Eternitas (ES256).
     claims = await _try_verify(token, settings.pro_jwks_url, ["RS256"])
     if claims is not None:
+        # Pro JWTs carry `eternitas_passport` when the identity holds an active
+        # passport (account-server generateTokens/generateOAuthTokens — revoked
+        # passports emit no claim). An agent, or a human operating one, that
+        # authenticates with a Pro token is therefore passport-bearing. Treating
+        # EVERY Pro token as passportless is exactly what let any human bypass the
+        # drop ownership gates (publish-as-anyone / withdraw-anyone), so trust the
+        # claim for ownership here.
+        pro_passport = str(claims.get("eternitas_passport", "")) or None
         return AuthUser(
             subject=str(claims.get("sub", "")),
             issuer=str(claims.get("iss", "")) or None,
             tier="human",
-            passport=None,
+            passport=pro_passport,
             integrity_band=None,
             clearance_level=None,
             raw_claims=claims,
