@@ -97,6 +97,32 @@ async def test_withdraw_403_when_caller_not_author(db_session: AsyncSession) -> 
 
 
 @pytest.mark.asyncio
+async def test_withdraw_403_when_caller_has_no_passport(db_session: AsyncSession) -> None:
+    # A human Pro JWT (passport=None) must NOT be able to withdraw a drop it
+    # doesn't own — the pre-fix `if user.passport is not None` skip let any
+    # authenticated human withdraw anyone's drop.
+    await _seed(db_session, "owned", author_passport="ET26-TEST-0001")
+    app = _app(db_session, passport=None)
+    client = TestClient(app)
+    r = client.delete("/api/v1/drops/owned")
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"] == "not_author"
+
+
+@pytest.mark.asyncio
+async def test_withdraw_403_on_passportless_authored_drop(db_session: AsyncSession) -> None:
+    # A drop whose author entries carry no passport is owned by nobody; no
+    # caller (human or agent) can withdraw it via the API. Fail-closed.
+    await _seed(db_session, "orphan", author_passport=None)
+    assert TestClient(_app(db_session, passport=None)).delete(
+        "/api/v1/drops/orphan"
+    ).status_code == 403
+    assert TestClient(_app(db_session, passport="ET26-TEST-0001")).delete(
+        "/api/v1/drops/orphan"
+    ).status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_withdrawn_drop_disappears_from_browse(db_session: AsyncSession) -> None:
     await _seed(db_session, "alive")
     await _seed(db_session, "kill-me")

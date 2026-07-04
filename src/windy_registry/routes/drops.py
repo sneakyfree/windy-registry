@@ -38,6 +38,29 @@ def _author_passports(manifest: dict[str, Any]) -> list[str]:
     return [a.get("passport") for a in authors if isinstance(a, dict) and a.get("passport")]
 
 
+async def _caller_owns_drop(
+    session: AsyncSession, drop_id: str, caller_passport: str | None
+) -> bool:
+    """True iff `caller_passport` appears in any existing version's author[].
+
+    Ownership is passport-based — a caller with no passport owns nothing.
+    Used to gate re-publishing new versions of, and withdrawing, an existing
+    drop.
+    """
+    if caller_passport is None:
+        return False
+    versions = (
+        await session.execute(
+            select(DropVersion.manifest).where(DropVersion.drop_id == drop_id)
+        )
+    ).scalars().all()
+    for manifest in versions:
+        for a in (manifest or {}).get("author") or []:
+            if isinstance(a, dict) and a.get("passport") == caller_passport:
+                return True
+    return False
+
+
 @router.post(
     "",
     response_model=PublishedDrop,
@@ -90,14 +113,30 @@ async def publish(
             detail={"error": "paid_requires_signature"},
         )
 
-    # 3. Author ownership — caller's passport must appear in author[].
+    # 3a. No impersonation — if the manifest claims authorship-by-passport, the
+    #     caller must own one of those passports. Ownership is passport-based, so
+    #     a passportless caller owns nothing and cannot publish AS a passport
+    #     holder. (Previously this whole block was skipped when user.passport was
+    #     None, letting any human Pro JWT publish as anyone.)
     declared_passports = _author_passports(body.manifest)
-    if user.passport is not None:
-        if declared_passports and user.passport not in declared_passports:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"error": "caller_passport_not_in_authors"},
-            )
+    if declared_passports and (
+        user.passport is None or user.passport not in declared_passports
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "caller_passport_not_in_authors"},
+        )
+
+    # 3b. No id-hijack — publishing a NEW version of an EXISTING drop requires the
+    #     caller to own an author passport on a prior version. The first publish
+    #     of a fresh id is open; taking over someone else's id is not.
+    if await session.get(Drop, drop_id) is not None and not await _caller_owns_drop(
+        session, drop_id, user.passport
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "not_author"},
+        )
 
     # G10: opt-in bundle SHA re-verify (set WINDY_VERIFY_BUNDLE_BYTES=1 in prod).
     from ..services.signature_verify import verify_bundle_bytes
@@ -293,21 +332,12 @@ async def withdraw_drop(
     if drop is None:
         raise HTTPException(status_code=404, detail={"error": "drop_not_found"})
 
-    # Ownership check — caller's passport must appear in any version's manifest.author[].
-    if user.passport is not None:
-        versions = (await session.execute(
-            select(DropVersion.manifest).where(DropVersion.drop_id == drop_id)
-        )).scalars().all()
-        owns = False
-        for manifest in versions:
-            for a in (manifest or {}).get("author") or []:
-                if isinstance(a, dict) and a.get("passport") == user.passport:
-                    owns = True
-                    break
-            if owns:
-                break
-        if not owns:
-            raise HTTPException(status_code=403, detail={"error": "not_author"})
+    # Ownership check — caller's passport must appear in some version's author[].
+    # Fail-closed: a passportless caller owns nothing, so it cannot withdraw a
+    # drop. (Previously the whole check was skipped when user.passport was None,
+    # letting any human Pro JWT withdraw anyone's drop.)
+    if not await _caller_owns_drop(session, drop_id, user.passport):
+        raise HTTPException(status_code=403, detail={"error": "not_author"})
 
     from datetime import UTC, datetime
     drop.withdrawn_at = datetime.now(UTC)
