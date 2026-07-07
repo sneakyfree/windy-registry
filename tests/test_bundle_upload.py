@@ -191,6 +191,67 @@ def test_upload_non_author_403(client: TestClient, app: FastAPI) -> None:
     assert r.json()["detail"]["error"] == "not_author"
 
 
+def _passportless_manifest(drop_id: str) -> dict[str, Any]:
+    # Official-drop shape: author has a name but no passport (owned-by-nobody).
+    return {
+        "schema": "windy.drop.v1",
+        "id": drop_id,
+        "name": "Passportless Official",
+        "type": "control-panel-template",
+        "version": "1.0.0",
+        "author": [{"name": "Kit Army Windstorm"}],
+        "license": "MIT",
+    }
+
+
+def _publish_passportless(client: TestClient, zip_bytes: bytes, drop_id: str) -> None:
+    r = client.post(
+        "/api/v1/drops",
+        json={
+            "manifest": _passportless_manifest(drop_id),
+            "bundle_url": f"https://drops.windydrops.com/{drop_id}/1.0.0/{drop_id}-1.0.0.zip",
+            "bundle_sha256": hashlib.sha256(zip_bytes).hexdigest(),
+        },
+    )
+    assert r.status_code == 201, r.text
+
+
+def test_upload_passportless_drop_allows_any_authenticated_caller(
+    client: TestClient, app: FastAPI, fake_r2: FakeR2Client
+) -> None:
+    # Regression: a drop whose manifest declares NO author passport (the
+    # official-drop shape) could be published but never receive its bytes,
+    # because _caller_owns_drop can't be true without a declared passport.
+    zip_bytes = make_zip({"SKILL.md": b"# official"})
+    _publish_passportless(client, zip_bytes, "official-drop")
+
+    async def some_other_caller() -> AuthUser:
+        return AuthUser(
+            subject="ET26-TEST-9999",
+            issuer="eternitas.ai",
+            tier="agent",
+            passport="ET26-TEST-9999",
+            integrity_band="fair",
+            clearance_level="verified",
+            raw_claims={"sub": "ET26-TEST-9999"},
+        )
+
+    app.dependency_overrides[get_current_user] = some_other_caller
+    r = client.put("/api/v1/drops/official-drop/versions/1.0.0/bundle", content=zip_bytes)
+    assert r.status_code == 200, r.text
+
+
+def test_upload_passportless_drop_still_enforces_sha(client: TestClient) -> None:
+    # "Open" upload for passportless drops is safe ONLY because the SHA must
+    # match — you can never push arbitrary bytes.
+    zip_bytes = make_zip({"SKILL.md": b"# official"})
+    _publish_passportless(client, zip_bytes, "official-drop")
+    tampered = make_zip({"SKILL.md": b"# malware"})
+    r = client.put("/api/v1/drops/official-drop/versions/1.0.0/bundle", content=tampered)
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "bundle_sha_mismatch"
+
+
 def test_upload_oversize_413(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     zip_bytes = make_zip({"SKILL.md": b"# hi"})
     publish(client, zip_bytes)

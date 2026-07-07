@@ -62,6 +62,44 @@ async def _caller_owns_drop(
     return False
 
 
+async def _drop_declares_any_author_passport(
+    session: AsyncSession, drop_id: str
+) -> bool:
+    """True iff any version of the drop declares an author with a passport."""
+    versions = (
+        await session.execute(
+            select(DropVersion.manifest).where(DropVersion.drop_id == drop_id)
+        )
+    ).scalars().all()
+    for manifest in versions:
+        for a in (manifest or {}).get("author") or []:
+            if isinstance(a, dict) and a.get("passport"):
+                return True
+    return False
+
+
+async def _may_upload_bundle(
+    session: AsyncSession, drop_id: str, caller_passport: str | None
+) -> bool:
+    """Who may attach bytes to an already-published version.
+
+    Mirrors publish's first-publish semantics rather than the stricter
+    new-version rule: a drop whose manifest declares NO author passport is
+    owned-by-nobody and follows the open model (any authenticated caller).
+    For those, tamper-safety rests on the SHA-256 match the caller must
+    satisfy — you can only upload bytes that hash to the value recorded at
+    publish time, so "open" upload can still only ever produce the genuine
+    bundle. When an author passport IS declared, only that owner may upload.
+
+    Fixes the gap where a passportless-author drop (e.g. the official drops)
+    could be published but never receive its bytes — `_caller_owns_drop`
+    can never be true without a declared passport.
+    """
+    if await _caller_owns_drop(session, drop_id, caller_passport):
+        return True
+    return not await _drop_declares_any_author_passport(session, drop_id)
+
+
 @router.post(
     "",
     response_model=PublishedDrop,
@@ -239,7 +277,7 @@ async def publish(
     status_code=status.HTTP_200_OK,
     responses={
         401: {"description": "Bearer token missing / invalid"},
-        403: {"description": "Caller does not own an author passport on this drop"},
+        403: {"description": "Drop declares an author passport the caller doesn't own"},
         404: {"description": "No such (drop_id, version)"},
         413: {"description": "Zip exceeds the size cap"},
         422: {"description": "SHA-256 mismatch or unsafe/invalid zip"},
@@ -285,7 +323,7 @@ async def upload_bundle_bytes(
             detail={"error": "version_not_found", "drop_id": drop_id, "version": version},
         )
 
-    if not await _caller_owns_drop(session, drop_id, user.passport):
+    if not await _may_upload_bundle(session, drop_id, user.passport):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "not_author"},
