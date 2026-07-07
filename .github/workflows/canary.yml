@@ -1,0 +1,32 @@
+# canary.yml — scheduled content-checking canary against production.
+#
+# Status codes lie: the 2026-07-04 CDN breakage returned clean 200 HTML for
+# three days. tools/canary_smoke.py asserts content types, bundle SHA-256,
+# and direct (no-redirect) fetches. A red run here means grandma's install
+# flow is broken RIGHT NOW.
+#
+# NOTE: while the org is billing-locked this workflow cannot run; the EC2
+# cron (root crontab on 54.88.113.79, every 15 min, logs to
+# /var/log/windy-drops-canary.log) is the active canary until then.
+
+name: canary
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: prod content canary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - run: python tools/canary_smoke.py

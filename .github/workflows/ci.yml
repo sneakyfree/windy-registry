@@ -26,3 +26,32 @@ jobs:
         run: .venv/bin/pytest tests/ -v
       - name: Alembic offline check (upgrade DDL renders)
         run: .venv/bin/alembic upgrade head --sql > /tmp/upgrade.sql && head -10 /tmp/upgrade.sql
+
+  postgres-integration:
+    # Real-Postgres suite. Exists because three prod-only bugs (fork FK,
+    # jsonb LIKE, EPT claim shape) shipped while the SQLite suite was green.
+    name: postgres integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e '.[all]'
+      - name: Run integration suite against real Postgres
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:test@127.0.0.1:5432/postgres
+        run: .venv/bin/pytest tests/test_postgres_integration.py -v
