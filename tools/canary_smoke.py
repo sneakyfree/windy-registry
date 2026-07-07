@@ -108,6 +108,23 @@ def check_bundle(client: httpx.Client, drop_id: str) -> None:
     elif "text/html" not in h.headers.get("content-type", ""):
         fail(f"render.html {drop_id} content-type={h.headers.get('content-type')!r}")
 
+    # The in-Pro Control Panel mounts drops in a sandbox="allow-scripts"
+    # iframe (null origin); its ES-module import of render.js is a CORS
+    # fetch that needs ACAO on EVERY cache variant. Found 2026-07-07: the
+    # bucket's origin-scoped CORS left null-origin imports blocked, so every
+    # CDN drop rendered blank in-app since launch. Guarded by an
+    # unconditional CF transform rule; this check pages if it regresses.
+    js_url = bundle_url.rsplit("/", 1)[0] + "/render.js"
+    for origin in (None, "null"):
+        headers = {"Origin": origin} if origin else {}
+        j = client.get(js_url, headers=headers, follow_redirects=False)
+        acao = j.headers.get("access-control-allow-origin")
+        if j.status_code != 200 or acao != "*":
+            fail(
+                f"render.js {drop_id} CORS broken for origin={origin!r}: "
+                f"status={j.status_code} ACAO={acao!r} (in-app drops render blank without it)"
+            )
+
 
 def check_previews(client: httpx.Client, items: list[dict]) -> None:
     for item in items:
