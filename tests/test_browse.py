@@ -181,3 +181,16 @@ async def test_well_known_r2_config(client: TestClient) -> None:
     assert body["bucket"] == "windydrops-bundles"
     assert body["public_domain"] == "drops.windydrops.com"
     assert "account_id" in body
+
+
+def test_preview_url_derived_from_manifest() -> None:
+    from windy_registry.models.drop import Drop
+    from windy_registry.routes.browse import _preview_url
+
+    drop = Drop(id="p-test", type="skill", current_version="1.2.0")
+    assert (
+        _preview_url(drop, {"preview": "preview.png"})
+        == "https://drops.windydrops.com/p-test/1.2.0/preview.png"
+    )
+    assert _preview_url(drop, {}) is None
+    assert _preview_url(drop, {"preview": "../evil.png"}) is None

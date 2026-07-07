@@ -21,6 +21,19 @@ router = APIRouter(tags=["drops"])
 public_router = APIRouter(tags=["meta"])
 
 
+def _preview_url(drop: Drop, manifest: dict) -> str | None:
+    """CDN URL for the manifest-declared preview image, if any.
+
+    Manifests declare a relative filename (e.g. ``preview: preview.png``);
+    the bundle upload step places it under ``{id}/{version}/`` on R2.
+    """
+    preview = manifest.get("preview")
+    if not preview or "/" in str(preview):
+        return None
+    settings = get_settings()
+    return f"https://{settings.r2_public_domain}/{drop.id}/{drop.current_version}/{preview}"
+
+
 def _summary_from(
     drop: Drop,
     *,
@@ -42,7 +55,7 @@ def _summary_from(
         tags=m.get("tags") or [],
         license=m.get("license"),
         locale_hint=m.get("locale_hint"),
-        preview_url=None,  # filled per ADR-053 §"Bundle storage" once R2 wires up
+        preview_url=_preview_url(drop, m),
         forked_from=drop.forked_from,
         withdrawn_at=drop.withdrawn_at,
         created_at=drop.created_at,
