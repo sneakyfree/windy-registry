@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 from sqlalchemy import func, select
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from windy_drops_spec import DropManifest
 
+from ..config import Settings, get_settings
 from ..database import get_session
 from ..middleware.auth import AuthUser, get_current_user
 from ..models import Drop, DropVersion, Fork
@@ -231,6 +232,104 @@ async def publish(
         signer_clearance_level=signer_level,
         published_at=version_row.published_at if version_row.published_at else __import__("datetime").datetime.now(),
     )
+
+
+@router.put(
+    "/{drop_id}/versions/{version}/bundle",
+    status_code=status.HTTP_200_OK,
+    responses={
+        401: {"description": "Bearer token missing / invalid"},
+        403: {"description": "Caller does not own an author passport on this drop"},
+        404: {"description": "No such (drop_id, version)"},
+        413: {"description": "Zip exceeds the size cap"},
+        422: {"description": "SHA-256 mismatch or unsafe/invalid zip"},
+        503: {"description": "R2 is not configured on this deployment"},
+    },
+)
+async def upload_bundle_bytes(
+    drop_id: str,
+    version: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Accept the published version's bundle zip and push it to R2.
+
+    Completes the publish flow: POST /api/v1/drops records the pointer
+    (bundle_url + sha256); this endpoint moves the actual bytes. The body is
+    the raw zip. Its SHA-256 must equal the bundle_sha256 recorded at publish
+    time, so the pointer and the served bytes can never disagree.
+    """
+    import hashlib
+
+    from starlette.concurrency import run_in_threadpool
+
+    from ..services.r2_upload import (
+        MAX_BUNDLE_BYTES,
+        BundleUploadError,
+        upload_bundle,
+    )
+
+    version_row = (
+        await session.execute(
+            select(DropVersion).where(
+                DropVersion.drop_id == drop_id,
+                DropVersion.version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if version_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "version_not_found", "drop_id": drop_id, "version": version},
+        )
+
+    if not await _caller_owns_drop(session, drop_id, user.passport):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "not_author"},
+        )
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BUNDLE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={"error": "bundle_too_large", "max_bytes": MAX_BUNDLE_BYTES},
+        )
+    zip_bytes = await request.body()
+    if len(zip_bytes) > MAX_BUNDLE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={"error": "bundle_too_large", "max_bytes": MAX_BUNDLE_BYTES},
+        )
+
+    digest = hashlib.sha256(zip_bytes).hexdigest()
+    if digest != version_row.bundle_sha256:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "bundle_sha_mismatch",
+                "expected": version_row.bundle_sha256,
+                "received": digest,
+            },
+        )
+
+    if not (settings.r2_account_id and settings.r2_access_key_id and settings.r2_secret_access_key):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "r2_not_configured"},
+        )
+
+    try:
+        keys = await run_in_threadpool(upload_bundle, settings, drop_id, version, zip_bytes)
+    except BundleUploadError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": e.error, "message": e.message},
+        ) from e
+
+    return {"uploaded": keys, "bundle_url": version_row.bundle_url}
 
 
 # ---- WD-19: fork + lineage endpoints ----

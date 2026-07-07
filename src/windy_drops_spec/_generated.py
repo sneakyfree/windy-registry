@@ -42,6 +42,10 @@ class I18nString1(RootModel[str]):
 
 
 class I18nString2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    __pydantic_extra__: dict[str, str]
     default: str = Field(
         ..., pattern="^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2}|-[0-9]{3})?$"
     )
