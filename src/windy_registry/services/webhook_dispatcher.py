@@ -126,13 +126,13 @@ async def dispatch_event(
     }
     body_bytes = json.dumps(body, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
 
-    # Match by event_types JSON array. SQLite + Postgres both support this via
-    # JSON-as-text LIKE (less elegant than jsonb_array_elements; v1 simplification).
-    subs = (await session.execute(
-        select(WebhookSubscription).where(
-            WebhookSubscription.event_types.like(f'%"{event_type}"%')
-        )
-    )).scalars().all()
+    # Match by event_types JSON array in Python. The previous text-LIKE query
+    # worked on SQLite (JSON stored as TEXT) but has no operator on Postgres,
+    # where the column is jsonb — which 500'd every event-firing write
+    # (publish/install/rate/fork/tip/withdraw) in prod. Subscriber counts are
+    # small; an in-process filter is dialect-proof.
+    all_subs = (await session.execute(select(WebhookSubscription))).scalars().all()
+    subs = [s for s in all_subs if event_type in (s.event_types or [])]
 
     notified: list[UUID] = []
     for sub in subs:
