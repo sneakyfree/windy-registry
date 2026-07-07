@@ -67,9 +67,10 @@ class Fork(Base):
     source_drop_id: Mapped[str] = mapped_column(
         String(128), ForeignKey("drops.id", ondelete="CASCADE"), primary_key=True
     )
-    fork_drop_id: Mapped[str] = mapped_column(
-        String(128), ForeignKey("drops.id", ondelete="CASCADE"), primary_key=True
-    )
+    # Deliberately NOT an FK: forks claim their id before first publish
+    # (is_published=False), so the drops row does not exist yet. Enforcing an
+    # FK here 500'd every fork on Postgres (migration 0002 dropped it).
+    fork_drop_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     is_published: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     forked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
