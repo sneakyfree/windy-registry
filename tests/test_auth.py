@@ -216,6 +216,48 @@ def test_eternitas_es256_jwt_accepted(client, patched_httpx, keys):
     assert body["passport"] == "ET26-TEST-0001"
 
 
+def test_real_ept_shape_passport_falls_back_to_sub(client, patched_httpx, keys):
+    # Real EPTs from Eternitas's CredentialIssuer have NO `passport` claim —
+    # the passport is the `sub` (claims: sub/ope/bot/typ/tru/ver). Regression
+    # for the e2e-found bug where every real EPT resolved passport=None and
+    # could never publish or own a drop.
+    token = jwt.encode(
+        {
+            "sub": "ET26-TEST-GOOD",
+            "exp": int(time.time()) + 3600,
+            "iss": "eternitas.ai",
+            "ope": "grant-founder",
+            "bot": "drops-e2e-smoke",
+            "typ": "human",
+            "tru": 950,
+            "ver": "exceptional",
+        },
+        keys["et_priv"].decode(),
+        algorithm="ES256",
+        headers={"kid": "et-kid-1"},
+    )
+    r = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["passport"] == "ET26-TEST-GOOD"
+
+
+def test_non_passport_sub_does_not_populate_passport(client, patched_httpx, keys):
+    token = jwt.encode(
+        {
+            "sub": "service-account-42",
+            "exp": int(time.time()) + 3600,
+            "iss": "eternitas.ai",
+        },
+        keys["et_priv"].decode(),
+        algorithm="ES256",
+        headers={"kid": "et-kid-1"},
+    )
+    r = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["passport"] is None
+
+
 def test_invalid_signature_rejected(client, patched_httpx, keys):
     # Sign with a DIFFERENT key (not the one in JWKS).
     other_priv, _ = _rsa_keypair_and_jwks(kid="pro-kid-1")

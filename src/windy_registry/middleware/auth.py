@@ -15,6 +15,7 @@ with `windy-connect/docs/bundle-spec-v1.md` per AUDIT_2026-05-21.md Bucket 3.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,9 @@ from ..config import Settings, get_settings
 _JWKS_TTL_SECONDS = 300
 
 _jwks_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+# Eternitas passport shape, e.g. ET26-TEST-GOOD / ET26-WIND-Y000.
+_PASSPORT_RE = re.compile(r"^ET\d{2}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
 
 @dataclass(frozen=True)
@@ -131,11 +135,18 @@ async def _resolve_user(
 
     claims = await _try_verify(token, settings.eternitas_jwks_url, ["ES256"])
     if claims is not None:
+        # Real EPTs minted by Eternitas's CredentialIssuer carry the passport
+        # in `sub` (claims: sub/ope/bot/typ/tru/ver) — there is no `passport`
+        # claim. Accept an explicit claim first, else a passport-shaped sub.
+        sub = str(claims.get("sub", ""))
+        passport = str(claims.get("passport", "")) or None
+        if passport is None and _PASSPORT_RE.match(sub):
+            passport = sub
         return AuthUser(
-            subject=str(claims.get("sub", "")),
+            subject=sub,
             issuer=str(claims.get("iss", "")) or None,
             tier="agent",
-            passport=str(claims.get("passport", "")) or None,
+            passport=passport,
             integrity_band=claims.get("integrity_band"),
             clearance_level=claims.get("clearance_level"),
             raw_claims=claims,
