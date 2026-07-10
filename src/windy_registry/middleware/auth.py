@@ -135,6 +135,14 @@ async def _resolve_user(
 
     claims = await _try_verify(token, settings.eternitas_jwks_url, ["ES256"])
     if claims is not None:
+        # [A4] Reject a token whose issuer isn't eternitas (defense in depth;
+        # the signature is already eternitas-JWKS-verified). Both the bare and
+        # URL issuer forms are in use.
+        if str(claims.get("iss", "")) not in ("eternitas.ai", "https://api.eternitas.ai"):
+            return None
+        # [A4] Honor the baked-in revocation flag.
+        if claims.get("rev") is True:
+            return None
         # Real EPTs minted by Eternitas's CredentialIssuer carry the passport
         # in `sub` (claims: sub/ope/bot/typ/tru/ver) — there is no `passport`
         # claim. Accept an explicit claim first, else a passport-shaped sub.
@@ -142,6 +150,15 @@ async def _resolve_user(
         passport = str(claims.get("passport", "")) or None
         if passport is None and _PASSPORT_RE.match(sub):
             passport = sub
+        # [A4] Consult the eternitas CRL for a revocation issued AFTER mint
+        # (the `rev` claim is baked at mint time). Cache is None in dev/tests
+        # (init'd only outside dev) → the gate is skipped there.
+        if passport:
+            from .revocation import get_revocation_cache
+
+            cache = get_revocation_cache()
+            if cache is not None:
+                await cache.check(passport)
         return AuthUser(
             subject=sub,
             issuer=str(claims.get("iss", "")) or None,
