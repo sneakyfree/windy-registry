@@ -37,6 +37,23 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
 
+    # Passport revocation cache (A4). Init only outside dev so the test suite
+    # makes no CRL network call; the rev-claim + issuer checks in
+    # middleware/auth.py run regardless of whether the cache is wired.
+    if settings.environment != "development":
+        from .middleware.revocation import init_revocation_cache
+        fail_closed = (
+            settings.revocation_fail_closed
+            if settings.revocation_fail_closed is not None
+            else settings.environment == "production"
+        )
+        init_revocation_cache(
+            settings.eternitas_crl_url,
+            ttl_seconds=settings.crl_ttl_seconds,
+            max_stale_seconds=settings.crl_max_stale_seconds,
+            fail_closed=fail_closed,
+        )
+
     # G11: rate limit middleware. Disabled in dev + tests so the suite stays
     # deterministic; enabled in production.
     from .middleware.rate_limit import RateLimitMiddleware

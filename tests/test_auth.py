@@ -216,6 +216,42 @@ def test_eternitas_es256_jwt_accepted(client, patched_httpx, keys):
     assert body["passport"] == "ET26-TEST-0001"
 
 
+def test_ept_with_rev_flag_rejected(client, patched_httpx, keys):
+    # [A4] A revoked EPT (rev=True baked in) must be refused, not accepted.
+    token = jwt.encode(
+        {
+            "sub": "ET26-TEST-0001",
+            "exp": int(time.time()) + 3600,
+            "iss": "eternitas.ai",
+            "passport": "ET26-TEST-0001",
+            "rev": True,
+        },
+        keys["et_priv"].decode(),
+        algorithm="ES256",
+        headers={"kid": "et-kid-1"},
+    )
+    r = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_ept_foreign_issuer_rejected(client, patched_httpx, keys):
+    # [A4] A token signed by eternitas's key but claiming a foreign issuer is
+    # rejected (defense in depth alongside signature verification).
+    token = jwt.encode(
+        {
+            "sub": "ET26-TEST-0001",
+            "exp": int(time.time()) + 3600,
+            "iss": "https://evil.example.com",
+            "passport": "ET26-TEST-0001",
+        },
+        keys["et_priv"].decode(),
+        algorithm="ES256",
+        headers={"kid": "et-kid-1"},
+    )
+    r = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
 def test_real_ept_shape_passport_falls_back_to_sub(client, patched_httpx, keys):
     # Real EPTs from Eternitas's CredentialIssuer have NO `passport` claim —
     # the passport is the `sub` (claims: sub/ope/bot/typ/tru/ver). Regression

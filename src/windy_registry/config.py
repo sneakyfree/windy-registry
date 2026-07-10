@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     pro_jwks_url: str = "https://account.windyword.ai/.well-known/jwks.json"
     eternitas_jwks_url: str = "https://api.eternitas.ai/.well-known/eternitas-keys"
 
+    # Passport revocation enforcement (finding A4 — mirror windy-search #57).
+    # The EPT is a 365-day offline bearer; the CRL catches revocations issued
+    # after mint. Init'd only outside dev (main.create_app) so tests make no
+    # network call; unreachable past crl_max_stale_seconds → fail CLOSED.
+    eternitas_crl_url: str = "https://api.eternitas.ai/.well-known/eternitas-crl"
+    crl_ttl_seconds: int = 30
+    crl_max_stale_seconds: int = 300
+    revocation_fail_closed: bool | None = None  # None → closed iff production
+
     # Rate limiting.
     rate_limit_unauthenticated: str = "100/minute"
     rate_limit_user: str = "1000/minute"
