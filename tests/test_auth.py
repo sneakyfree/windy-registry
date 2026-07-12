@@ -323,6 +323,22 @@ def test_missing_auth_header_rejected_on_required(client, patched_httpx):
     assert r.status_code == 401
 
 
+@pytest.mark.parametrize(
+    "bad", ["garbage.token.xyz", "notevenajwt", "a.b.c", "x.y", ""]
+)
+def test_malformed_token_yields_401_not_500(client, patched_httpx, bad):
+    """A syntactically-broken Bearer token must be a clean 401, never an
+    unhandled 500 from jwt.get_unverified_header (regression: WD auth)."""
+    r = client.get("/protected", headers={"Authorization": f"Bearer {bad}"})
+    assert r.status_code == 401
+
+
+def test_malformed_token_optional_dep_no_exception(client, patched_httpx):
+    r = client.get("/maybe", headers={"Authorization": "Bearer garbage.token.xyz"})
+    assert r.status_code == 200
+    assert r.json() == {"signed_in": False}
+
+
 def test_optional_dep_returns_unauthenticated_on_missing(client, patched_httpx):
     r = client.get("/maybe")
     assert r.status_code == 200

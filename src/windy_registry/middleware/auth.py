@@ -83,7 +83,13 @@ async def _try_verify(token: str, jwks_url: str, algorithms: list[str]) -> dict[
     retry before giving up — handles silent key rotation upstream without
     forcing every request through a stale cache.
     """
-    header = jwt.get_unverified_header(token)
+    try:
+        header = jwt.get_unverified_header(token)
+    except JWTError:
+        # Malformed token (bad base64 / not a JWT). Not verifiable against this
+        # JWKS — return None so the caller tries the next issuer and ultimately
+        # surfaces a clean 401 instead of an unhandled 500.
+        return None
     kid = header.get("kid")
     jwks = await _fetch_jwks(jwks_url)
     key_dict = _find_key(jwks, kid)
