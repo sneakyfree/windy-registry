@@ -1,0 +1,50 @@
+{
+  "contract": "ops.mcp.v1",
+  "doctrine": "ADR-060 v1.0",
+  "product": "windy-registry",
+  "class": "cloud",
+  "mcp_protocol": "2025-06-18",
+  "$comment": "Windy DROPS ops surface — Class C. Dev-name/brand split: the consumer brand is 'Windy Drops', but the deployed service (and /version's service field, and the fleet-version key) is 'windy-registry' — so product=windy-registry. Its source lives in the windy-registry repo, separate from the windy-drops repo (which is the SDK + artifact-spec + CLI). Clean single-service replication. Product API (browse/publish/install drops, library, ratings, Stripe payouts, federation) stays OUT per §2. Live at https://api.windydrops.com. get_capabilities → /health/full, which actively probes Postgres + R2 + both JWKS (Pro + Eternitas) — a genuinely deep readiness probe (caught R2 http-404 live during this retrofit).",
+  "baseline_mapping": {
+    "get_health": { "status": "implemented", "maps_to": "GET /health" },
+    "get_status": { "status": "implemented", "maps_to": "GET /version", "note": "MF1 deploy identity: service, version, commit sha, started_at, environment." },
+    "get_capabilities": { "status": "implemented", "maps_to": "GET /health/full", "note": "actively probes Postgres + R2 bucket + JWKS (pro + eternitas); the real readiness/capability probe — never 500s, every dependency maps to a string." },
+    "get_config": { "status": "gap" },
+    "get_logs": { "status": "gap", "note": "content-free only." },
+    "run_selftest": { "status": "gap", "note": "canary: resolve + fetch a known drop end to end." },
+    "reconnect": { "status": "unsupported", "note": "stateless; dependency pools self-manage." },
+    "restart_app": { "status": "gap", "note": "out-of-band; ops plane outside the patient." },
+    "enter_safe_mode": { "status": "unsupported" },
+    "exit_safe_mode": { "status": "unsupported" },
+    "set_setting": { "status": "gap" },
+    "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (L2)." },
+    "apply_update": { "status": "gap", "note": "SSH-free health-gated redeploy hook; §7." },
+    "reset_to_defaults": { "status": "unsupported", "note": "NEVER — holds the drops catalog + creator payouts." }
+  },
+  "tools": [
+    {
+      "name": "get_health",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "The FIRST call when Windy Drops seems down. Liveness of the drops registry: returns ok if the API process is up and answering.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "transport": { "method": "GET", "path": "/health" }
+    },
+    {
+      "name": "get_status",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Read Windy Drops' deployment identity — which registry build is serving right now, its commit, when it started, and which environment. Use this to confirm a deploy actually landed.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "transport": { "method": "GET", "path": "/version" }
+    },
+    {
+      "name": "get_capabilities",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Deep readiness of Windy Drops: actively checks whether the database, the R2 bundle storage, and both trust-key sources (Windy Pro and Eternitas) are reachable. Use this when drops won't publish, download, or verify — it names exactly which dependency is broken.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "transport": { "method": "GET", "path": "/health/full" }
+    }
+  ]
+}
