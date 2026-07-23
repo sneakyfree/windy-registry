@@ -113,7 +113,7 @@ class RevocationCache:
                 raise HTTPException(
                     status_code=503,
                     detail="Revocation status unavailable — retry shortly",
-                )
+                ) from e
 
     async def check(self, passport: str) -> None:
         """Raise HTTPException(401) if the passport is revoked/suspended,

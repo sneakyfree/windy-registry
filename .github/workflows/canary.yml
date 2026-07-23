@@ -22,7 +22,7 @@ permissions:
 jobs:
   canary:
     name: prod content canary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
