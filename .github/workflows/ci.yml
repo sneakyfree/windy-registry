@@ -12,9 +12,11 @@ permissions:
 jobs:
   test:
     name: pytest + ruff
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
+      - name: runner-lint (hosted runners are billing-locked)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-runner-labels.sh" "$GITHUB_WORKSPACE/.github/workflows"
       - uses: astral-sh/setup-uv@v3
       - name: Install
         run: |
@@ -31,7 +33,7 @@ jobs:
     # Real-Postgres suite. Exists because three prod-only bugs (fork FK,
     # jsonb LIKE, EPT claim shape) shipped while the SQLite suite was green.
     name: postgres integration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     services:
       postgres:
         image: pgvector/pgvector:pg16

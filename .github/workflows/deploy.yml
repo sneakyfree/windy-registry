@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     if: github.repository == 'sneakyfree/windy-registry'
     steps:
       - uses: actions/checkout@v4
